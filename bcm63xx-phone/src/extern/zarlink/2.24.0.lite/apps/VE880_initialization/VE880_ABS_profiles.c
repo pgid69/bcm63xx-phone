@@ -1,0 +1,81 @@
+/*
+ * VE880_ABS_profiles.c --
+ *
+ * This file contains profile data in byte format
+ *
+ * Project Info --
+ *   File:   X:\shafer\lightning\ztap2012\ztap\applications\quickstarts\sdk_examples\VE880_initialization\VE880_ABS_profiles.vpw
+ *   Type:   VE880 ABS Configuration for -27/-81V Supply with VBL Regulation, Lite Narrowband Coefficients and PCM/MPI Interface at 8.192MHz PCLK
+ *   Date:   Tuesday, August 07, 2012 11:43:00
+ *   Device: VE880 Le88266
+ *
+ *   This file was generated with Profile Wizard Version: P2.3.0
+ */
+
+#include "VE880_ABS_profiles.h"
+
+
+/************** Device Parameters **************/
+
+/* Device Configuration Data - VE880 ABS -27/-81V Power Optimized With Free Run, PCM/MPI Interface */
+const VpProfileDataType ABS_DEV_PROFILE[] =
+{
+  /* Device Profile for VE880 Device Family */
+ 0x00, 0xFF, 0x00, 0x20, /* Profile Index and Length */
+ 0x05, 0x00, /* Version and MPI Command */
+ 0x20, 0x00, /* PCLK Frequency */
+ 0x8A, 0x00, /* Device Config 1, Battery Control Mode */
+ 0x40, 0x02, /* Clock Slot and Max Events */
+ 0x05, 0x00, /* Device Tickrate */
+ 0xE4, 0x00, 0x04, 0x00, /* Switching Regulator Parameters */
+ 0x1B, 0x05, /* Y-Voltage, Z-Voltage */
+ 0x00, 0x00, 0x00, 0x00, /* RSVD */
+ 0xB1, 0x00, 0xB1, 0x00, 0xB0, 0x40, /* Regulator Timing Parameters */
+ 0x2C, 0x40, 0x2C, 0x40, 0x2C, 0x40  /* FreeRun Timing Parameters */
+};
+
+/************** AC Filter Coefficients **************/
+
+/* AC FXS RF14 600R Normal Coefficients (Default)  */
+const VpProfileDataType ABS_AC_600_FXS[] =
+{
+  /* AC Profile */
+ 0xA4, 0x00, 0xF4, 0x4C, 0x01, 0x49, 0xCA, 0xF5, 0x98, 0xAA, 0x7B, 0xAB,
+ 0x2C, 0xA3, 0x25, 0xA5, 0x24, 0xB2, 0x3D, 0x9A, 0x2A, 0xAA, 0xA6, 0x9F,
+ 0x01, 0x8A, 0x1D, 0x01, 0xA3, 0xA0, 0x2E, 0xB2, 0xB2, 0xBA, 0xAC, 0xA2,
+ 0xA6, 0xCB, 0x3B, 0x45, 0x88, 0x2A, 0x20, 0x3C, 0xBC, 0x4E, 0xA6, 0x2B,
+ 0xA5, 0x2B, 0x3E, 0xBA, 0x8F, 0x82, 0xA8, 0x71, 0x80, 0xA9, 0xF0, 0x50,
+ 0x00, 0x86, 0x2A, 0x42, 0xA1, 0xCB, 0x1B, 0xA3, 0xA8, 0xFB, 0x87, 0xAA,
+ 0xFB, 0x9F, 0xA9, 0xF0, 0x96, 0x2E, 0x01, 0x00
+};
+
+/************** DC Feed Parameters **************/
+
+/* DC FXS Default -- Use for all countries unless country file exists - 22 mA  current feed */
+const VpProfileDataType ABS_DC_22MA_CC[] =
+{
+ /* DC Profile */
+ 0x00, 0x01, 0x01, 0x0B, 0x01, 0x08, 0xC2, 0x19, 0x86, 0xAA, 0x02, 0xC6,
+ 0x11, 0x04, 0x01
+};
+
+/************** Ring Signal Parameters **************/
+
+/* Default Ringing 25Hz 50 Vrms Fixed - Use for all countries unless country file exists */
+const VpProfileDataType ABS_RING_25HZ_SINE[] =
+{
+  /* Sine, 25 Hz, 1.41 CF, 70.00 Vpk, 0.00 Bias */
+  /* Ringing Profile */
+ 0x00, 0x04, 0x01, 0x12, 0x00, 0x0E, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x44,
+ 0x3A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x68, 0x01, 0x00, 0x00
+};
+
+/************** Call Progress Tones **************/
+
+/************** Cadence Definitions **************/
+
+/************** Caller ID **************/
+
+/************** Metering Profile **************/
+
+/* end of file VE880_ABS_profiles.c */

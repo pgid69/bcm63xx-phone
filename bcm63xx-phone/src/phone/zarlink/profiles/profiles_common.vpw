@@ -1,0 +1,221 @@
+PROJECT FILE VERSION 2
+$+project
+Device Parameters
+VP880 VoicePort MiniPBX Project (Line Module LE71HE0824)
+Profile_Index 0
+P2.7.0 0 0 0 VoicePort Le88241 profiles_common
+
+$-deviceProfile
+Device Parameters
+Device Configuration Data
+Profile_Index 0
+8192 138 0 64 5.000000 5 0 0 0 5 0 0
+
+$+acProfile
+AC_Filter_Coefficients
+(NEW) Add AC Coefficients
+Profile_Index 0
+
+
+$+dcProfileVP880Type
+DC_Feed_Parameters
+(NEW) Add DC Parameters
+Profile_Index 0
+None
+0
+
+$+ringProfile
+Ring_Signal_Parameters
+(NEW) Enter Ring Parametes
+Profile_Index 1
+0 20 1.000000 100.000000 0.000000
+
+$+toneProfile
+Call_Progress_Tones
+(NEW) Enter Tones
+Profile_Index 1
+400 -13.000000 400 -13.000000
+
+$+toneProfile
+TONE_DIAL
+US Dial Tone
+Profile_Index 1
+350 -13.000000 440 -13.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_SIT
+Special Information Tone (Called Number Not Connected)
+Profile_Index 1
+950 -8.000000 1400 -8.000000 1800 -8.000000 0 0.000000
+
+$+toneProfile
+TONE_BUSY
+Busy Signal
+Profile_Index 1
+480 -16.000000 620 -16.000000 0 -16.000000 0 -16.000000
+
+$+toneProfile
+TONE_RINGBACK
+Standard Ringback
+Profile_Index 1
+440 -13.000000 480 -13.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_CALLWAIT
+Call Waiting Beep
+Profile_Index 1
+440 -13.000000 0 6.020000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_REORDER
+US Reorder tone
+Profile_Index 1
+480 -16.000000 620 -16.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_ONEKHZ_L
+A 1kHz tone at -10dBm0
+Profile_Index 1
+1000 -10.000000 0 -13.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_ONEKHZ_H
+A 1kHz tone at 0dBm0
+Profile_Index 1
+1000 0.000000 0 -13.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_CLI
+Caller ID Alert Tone for UK Cadence
+Profile_Index 1
+2130 -13.000000 2750 -13.000000 0 -13.000000 0 -13.000000
+
+$+toneProfile
+TONE_ROH
+Receiver Off-Hook
+Profile_Index 1
+1400 0.000000 2060 0.000000 2450 0.000000 2600 0.000000
+
+$+cadenceProfile
+Cadence_Definitions
+Tones Always On
+Profile_Index 1
+/* Cadence Profile */ 0x00, 0x03, 0x01, 0x08, 0x00, 0x00, 0x00, 0x04, 0x00, 0x8F, 0x40, 0x00
+
+$+cadenceProfile
+TONE_CAD_DIAL0
+Standard dial tone cadence
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x08, 0x00, 0x00, 0x00, 0x04, 0x00, 0x8F, 0x20, 0x00
+
+$+cadenceProfile
+TONE_CAD_DIAL1
+Stutter dial tone cadence
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x10, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x8F, 0x20, 0x14,
+ 0x00, 0x80, 0x20, 0x14, 0x40, 0x03, 0x00, 0x8F
+
+$+cadenceProfile
+TONE_CAD_BUSY0
+Busy signal cadence (0.5 sec on 0.5 sec off)
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x8F, 0x20, 0x64,
+ 0x00, 0x80, 0x20, 0x64, 0x40, 0x00
+
+$+cadenceProfile
+TONE_CAD_REORDER
+Tone Reorder cadence (0.25 sec on 0.25 sec off)
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x8F, 0x20, 0x32,
+ 0x00, 0x80, 0x20, 0x32, 0x40, 0x00
+
+$+cadenceProfile
+RING_CAD_STD
+Standard Ringing Cadence (2 sec on 4 sec off)
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x08, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x07, 0x21, 0x90,
+ 0x01, 0x05, 0x23, 0x20, 0x40, 0x00
+
+$+cadenceProfile
+TONE_CAD_RNGBACK
+Ringback Cadence
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x8F, 0x21, 0x90,
+ 0x00, 0x80, 0x23, 0x20, 0x40, 0x00
+
+$+cadenceProfile
+RING_CAD_ON
+Ringing Always On
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x08, 0x01, 0x08, 0x00, 0x00, 0x00, 0x04, 0x00, 0x8F, 0x20, 0x00
+
+$+cadenceProfile
+TONE_CAD_ROH
+Receiver Off-Hook
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x0E, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x8F, 0x20, 0x14,
+ 0x00, 0x80, 0x20, 0x14, 0x40, 0x00
+
+$+cadenceProfile
+TONE_CAD_SIT
+SIT Cadence
+Profile_Index 1
+/* Cadence Profile */
+ 0x00, 0x03, 0x01, 0x14, 0x00, 0x00, 0x00, 0x10, 0x00, 0x81, 0x20, 0x3C,
+ 0x00, 0x82, 0x20, 0x3C, 0x00, 0x84, 0x20, 0x3C, 0x00, 0x80, 0x20, 0x00
+
+$+callerIdProfile
+Caller_ID
+US Caller ID
+Profile_Index 0
+
+
+$+callerIdProfile
+CLI_TYPE1_US
+US Caller ID (Type 1 - On-Hook)
+Profile_Index 1
+0 2200 1200 0.500000 0 1 4,4 520,7 250,8 150,9
+
+$+callerIdProfile
+CLI_TYPE1_UK
+UK Caller ID (Type 1 - On-hook)
+Profile_Index 1
+0 2100 1200 0.500000 1 1 10,4 50,0,4 100,3 100 TONE_CLI CAD_ALWAYS_ON,5 100 20,7 100,8 50,9,4 200,0
+
+$+callerIdProfile
+CLI_TYPE2_US
+US and UK Type 2 Caller ID
+Profile_Index 1
+1 2100 1200 0.500000 0 1 9,1,3 300 TONE_CALLWAIT CAD_CALLWAIT,4 10,3 80 TONE_CLI CAD_ALWAYS_ON,6 160 13 16,4 100,8 70,9,2
+
+$+meteringProfile
+Metering_Profile
+Metering
+Profile_Index 0
+
+
+$+fxoDialingProfile
+FXO_Dialing_Profile
+FXO/Dialing
+Profile_Index 0
+
+
+$+fxoDialingProfile
+FXO_DIALING
+FXO/Dialing Profile
+Profile_Index 0
+38 2 2 33 17 200 40 60 600 200 199
+
+$+testProfile
+Test_Profile
+Test
+Profile_Index 0
+

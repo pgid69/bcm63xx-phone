@@ -1,0 +1,73 @@
+;
+; Broadcom 63xx Telephony Interface
+;
+; Configuration file
+
+; Global parameters
+[interfaces]
+;
+; Number of FXS lines
+; Valid value must be in the range [1 ,4]
+lines = 2
+;
+; Country : valid value is one of :
+; etsi, gr57, australia, austria, belgium, brazil, bulgaria, canada,
+; china, denmark, finland, france, germany, great_britain, greece,
+; honk_kong, hungary, iceland, ireland, israel, italy, japan, korea,
+; netherlands, new_zealand, norway, portugal, russia, singapore,
+; south_africa, spain, sweden, switzerland, taiwan, turkey,
+; united_states
+country = france
+
+; Specific parameters of the first line
+[line1]
+enable = 1
+; Codecs that can be used for this line
+; this is a list of comma separated values
+; Valid values are : alaw, ulaw, slin and slin16
+codecs = alaw, ulaw, slin
+; Context used for call emitted with this line
+context = bcmph-line-1
+; If 1, the channel reads digits then start PBX with
+; the dialed extension
+; If 0, starts PBX immediately when phone goes off hook
+monitor_dialing = 1
+; If monitor_dialing = 1, if a digit is dialed, the channel waits the
+; following timeout before searching if all the digits dialed form a
+; valid extension
+dialing_timeout = 3000
+; Activate DTMF detection. Valid values are one of :
+; never, dialing, connected, always
+; DTMF detection is possible with codecs alaw, ulaw and slin,
+; but not slin16
+detect_dtmf = dialing
+; This sets the Caller Id string and number for calls originating on
+; this line.
+callerid = "line1" <00-00-00-01>
+
+; Specific parameters of the second line
+[line2]
+enable = 0
+; Codecs that can be used for this line
+; this is a list of comma separated values
+; Valid values are : alaw, ulaw, slin and slin16
+codecs = alaw, ulaw, slin
+; Context used for call emitted with this line
+context = bcmph-line-2
+; If 1, the channel reads digits then start PBX with
+; the dialed extension
+; If 0, starts PBX immediately when phone goes off hook
+monitor_dialing = 1
+; If monitor_dialing = 1, if a digit is dialed, the channel waits the
+; following timeout before searching if all the digits dialed form a
+; valid extension
+dialing_timeout = 3000
+; Activate DTMF detection. Valid values are one of :
+; never, dialing, connected, always
+; DTMF detection is possible with codecs alaw, ulaw and slin,
+; but not slin16
+detect_dtmf = dialing
+; This sets the Caller Id string and number for calls originating on
+; this line.
+callerid = "line2" <00-00-00-02>
+

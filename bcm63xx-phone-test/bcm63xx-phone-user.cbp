@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="bcm63xx-phone-user" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/bcm63xx-phone-user" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-g" />
+					<Add option="-fsanitize=address -fno-omit-frame-pointer" />
+				</Compiler>
+				<Linker>
+					<Add option="-fsanitize=address" />
+				</Linker>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wshadow" />
+			<Add option="-Winit-self" />
+			<Add option="-Wredundant-decls" />
+			<Add option="-Wcast-align" />
+			<Add option="-Wundef" />
+			<Add option="-Wfloat-equal" />
+			<Add option="-Winline" />
+			<Add option="-Wunreachable-code" />
+			<Add option="-Wmissing-declarations" />
+			<Add option="-Wmissing-include-dirs" />
+			<Add option="-Wswitch-enum" />
+			<Add option="-Wswitch-default" />
+			<Add option="-Wmain" />
+			<Add option="-Wextra" />
+			<Add option="-Wall" />
+			<Add directory="../bcm63xx-phone/src/inc" />
+			<Add directory="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx" />
+			<Add directory="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/includes" />
+			<Add directory="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api" />
+			<Add directory="../bcm63xx-phone/src" />
+		</Compiler>
+		<Unit filename="../bcm63xx-phone/src/board/board.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_common.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_config.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_control.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_init.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_query.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_api_test.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_debug.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_dtmf_detect.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_pulse_decode.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/common/vp_timer_queue.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_abs_calibration.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_calibration_common.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_control_common.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_fxo_control.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_fxs_control.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_init.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_linestate_control.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_lp_control.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_query.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/2.24.0.lite/api_lib/vp880_api/vp880_tracker_calibration.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/mpi_hal.h" />
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/sys_service.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/sys_service.h" />
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/vp_api_profile_type.h" />
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/vp_api_types.h" />
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/vp_hal.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/extern/zarlink/arch/bcm63xx/vp_hal.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_line_state.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_line_state.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_log.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_phone.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_ring_buf.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/inc/bcm63xx_ring_buf.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/board.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/compile.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/config.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/countryArchive.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/fake_kernel.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/inc/fake_kernel.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/mpi.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/pcm.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/phone.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/phone_mgr.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/timer.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/utils.h" />
+		<Unit filename="../bcm63xx-phone/src/inc/wait_queue.h" />
+		<Unit filename="../bcm63xx-phone/src/ioctl.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/main.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/main.h" />
+		<Unit filename="../bcm63xx-phone/src/mpi/mpi.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/pcm/pcm.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/phone.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/phone_mgr.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/le88221/slic_le88221.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/le88221/slic_le88221.h" />
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/VE880_ABS100V_LITE_NB_PCM_Rev2_8.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/VE880_ABS100V_LITE_NB_PCM_Rev2_8.h" />
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/profiles_common.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/profiles_common.h" />
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/zarlink_common.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/zarlink_common.h" />
+		<Unit filename="../bcm63xx-phone/src/timer/timer.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/wait_queue/wait_queue.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="src/user.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Extensions>
+			<code_completion />
+			<envvars />
+			<lib_finder disable_auto="1" />
+			<debugger />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>
