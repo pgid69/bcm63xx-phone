@@ -294,7 +294,7 @@ static zarlink_device_parameters_t hw553_le88221_dev_params = {
    .tones = {
       .waiting_dial = {
          .profile = TONE_DIAL,
-         .on_time = 0x3FFF,
+         .on_time = 0x8000,
          .off_time = 0,
       },
       .invalid = {
@@ -371,15 +371,21 @@ static phone_desc_t hw553_phone_desc = {
             {
                .type = BCMPH_LIN_FXS,
                .first_timeslot = 0,
-               .parameters.zarlink = &(hw553_le88221_line0_params),
+               .parameters = {
+                  .zarlink = &(hw553_le88221_line0_params),
+               },
             },
             {
                .type = BCMPH_LIN_FXS,
                .first_timeslot = 2,
-               .parameters.zarlink = &(hw553_le88221_line1_params),
+               .parameters = {
+                  .zarlink = &(hw553_le88221_line1_params),
+               },
             },
          },
-         .parameters.zarlink = &(hw553_le88221_dev_params),
+         .parameters = {
+            .zarlink = &(hw553_le88221_dev_params),
+         }
       },
    },
 };

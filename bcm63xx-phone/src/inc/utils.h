@@ -23,7 +23,7 @@
 // Boundary must be a power of 2
 static inline size_t round_up_to_pow_of_2(size_t addr, size_t boundary)
 {
-   bcm_assert((~((boundary - 1) ^ (~(boundary - 1)))) == 0);
+   bcm_assert(is_power_of_2(boundary));
 #ifdef __KERNEL__
    return (round_up(addr, boundary));
 #else // !__KERNEL__

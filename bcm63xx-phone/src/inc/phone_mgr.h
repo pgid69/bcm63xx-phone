@@ -21,6 +21,13 @@
 #include <timer.h>
 #include <wait_queue.h>
 
+enum {
+   NO_CHANGE_ASKED = 0,
+   CHANGE_ASKED = 0x01,
+   CHANGE_ASKED_ASAP = 0x02,
+   CHANGE_PENDING = 0x04
+};
+
 typedef struct {
    // Index of device into phone_devices[] of phone_mgr.
    size_t index_dev;
@@ -40,12 +47,7 @@ typedef struct {
       bcm_phone_line_state_t line_state;
       // Bits field to tell if codec or mode field must be changed
       // New value are in 'new_mode' and 'new_codec' below
-      enum {
-         NO_CHANGE_ASKED = 0,
-         CHANGE_ASKED = 0x01,
-         CHANGE_ASKED_ASAP = 0x02,
-         CHANGE_PENDING = 0x04
-      } change_status;
+      unsigned int change_status;
       bcm_phone_codec_t new_codec;
       bcm_phone_line_mode_t new_mode;
       __u32 new_tone;

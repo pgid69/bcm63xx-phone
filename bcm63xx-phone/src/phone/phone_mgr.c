@@ -223,7 +223,7 @@ int bcm_phone_mgr_set_line_codec(bcm_phone_mgr_t *t, size_t line,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_codec(line=%lu, codec=%d, mode=%d, tone=%lu, wait=%d)\n",
+   bcm_pr_debug("bcm_phone_mgr_set_line_codec(line=%lu, codec=%d, mode=%d, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (int)(codec), (int)(mode), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -287,7 +287,7 @@ int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_mode(line=%lu, mode=%d, tone=%lu, wait=%d)\n",
+   bcm_pr_debug("bcm_phone_mgr_set_line_mode(line=%lu, mode=%d, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (int)(mode), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -347,7 +347,7 @@ int bcm_phone_mgr_set_line_tone(bcm_phone_mgr_t *t, size_t line,
    bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
 #endif // BCMPH_DEBUG
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_tone(line=%lu, tone=%lu, wait=%d)\n",
+   bcm_pr_debug("bcm_phone_mgr_set_line_tone(line=%lu, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))

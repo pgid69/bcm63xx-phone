@@ -824,7 +824,7 @@ ssize_t bcm_drv_read(struct file *filp, char *buf, size_t count,
    loff_t *offset)
 {
    ssize_t ret = 0;
-   bcm_drv_t *t = filp->private_data;
+   bcm_drv_t *t = (bcm_drv_t *)(filp->private_data);
    bcmph_mutex_t lock;
 
    dd_bcm_pr_debug("bcm_drv_read(buf=%lx, count=%lu)\n", (unsigned long)(buf), (unsigned long)(count));
@@ -961,7 +961,7 @@ ssize_t bcm_drv_write(struct file *filp, const char *buf,
             size_t count, loff_t *offset)
 {
    ssize_t ret = 0;
-   bcm_drv_t *t = filp->private_data;
+   bcm_drv_t *t = (bcm_drv_t *)(filp->private_data);
    bcmph_mutex_t lock;
 
    dd_bcm_pr_debug("bcm_drv_write(buf=%lx, count=%lu)\n", (unsigned long)(buf), (unsigned long)(count));
@@ -1144,7 +1144,7 @@ static
 int bcm_drv_release(struct inode *inode, struct file *filp)
 {
    int ret = 0;
-   bcm_drv_t *t = filp->private_data;
+   bcm_drv_t *t = (bcm_drv_t *)(filp->private_data);
    bcmph_mutex_t lock;
 
    bcm_pr_debug("bcm_drv_release()\n");

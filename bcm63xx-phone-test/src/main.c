@@ -1015,6 +1015,9 @@ static int test_echo(void)
                sleep(3);
                break;
             }
+            if (BCMPH_MODE_ON_RINGING != states.line_state[prm_default_line].mode) {
+               fprintf(stdout, "Line %lu is no more ringing. New mode is %d\n", (unsigned long)(prm_default_line), (int)(states.line_state[prm_default_line].mode));
+            }
          }
          if (ret) {
             break;
@@ -1154,6 +1157,21 @@ static int test_echo(void)
          if (ret) {
             break;
          }
+         if (states.line_state[prm_default_line].codec_change_count > 0) {
+            fprintf(stdout, "Codec changes %u time(s). Codec is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].codec_change_count),
+               (int)(states.line_state[prm_default_line].codec));
+         }
+         if (states.line_state[prm_default_line].mode_change_count > 0) {
+            fprintf(stdout, "Mode changes %u time(s). Mode is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].mode_change_count),
+               (int)(states.line_state[prm_default_line].mode));
+         }
+         if (states.line_state[prm_default_line].tone_change_count > 0) {
+            fprintf(stdout, "Tone changes %u time(s). Tone is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].tone_change_count),
+               (int)(states.line_state[prm_default_line].tone));
+         }
          if (states.line_state[prm_default_line].digits_count > 0) {
             size_t i;
 
@@ -1272,6 +1290,9 @@ static int test_tone(void)
                   bcm_phone_line_tone_code(prm_tone, prm_tone_on_time, prm_tone_off_time));
                break;
             }
+            if (BCMPH_MODE_ON_RINGING != states.line_state[prm_default_line].mode) {
+               fprintf(stdout, "Line %lu is no more ringing. New mode is %d\n", (unsigned long)(prm_default_line), (int)(states.line_state[prm_default_line].mode));
+            }
          }
          if (ret) {
             break;
@@ -1282,13 +1303,27 @@ static int test_tone(void)
       }
 #endif // !BCMPH_TEST_PCM
 
-      // We loop : we read data, then write what we have read and watch if the line
-      // is on hook
+      // We loop : we watch if the line is on hook
       for (;;) {
 #ifndef BCMPH_TEST_PCM
          ret = get_line_states(fd, 1000, &(states));
          if (ret) {
             break;
+         }
+         if (states.line_state[prm_default_line].codec_change_count > 0) {
+            fprintf(stdout, "Codec changes %u time(s). Codec is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].codec_change_count),
+               (int)(states.line_state[prm_default_line].codec));
+         }
+         if (states.line_state[prm_default_line].mode_change_count > 0) {
+            fprintf(stdout, "Mode changes %u time(s). Mode is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].mode_change_count),
+               (int)(states.line_state[prm_default_line].mode));
+         }
+         if (states.line_state[prm_default_line].tone_change_count > 0) {
+            fprintf(stdout, "Tone changes %u time(s). Tone is now %d\n",
+               (unsigned int)(states.line_state[prm_default_line].tone_change_count),
+               (int)(states.line_state[prm_default_line].tone));
          }
          if (states.line_state[prm_default_line].digits_count > 0) {
             size_t i;
@@ -1900,6 +1935,22 @@ static const char prm_name_tone[] = "tone";
 static const char prm_name_on[] = "on";
 static const char prm_name_off[] = "off";
 
+static void print_usage(void)
+{
+   fprintf(stdout, "Usage : bcm63xx-phone-test arg1 arg2 arg3... where arguments are one of\n");
+   fprintf(stdout, " test=loopback|loopback_mm|echo|tone, no default value : the test to make, the only mandatory argument\n");
+   fprintf(stdout, " default_line=0|1 : the line to use/test\n");
+   fprintf(stdout, " use_16bits=0|1, default value=0 : if PCM use 16 bits timeslot or 8 bits timeslot\n");
+   fprintf(stdout, " line0=0|1, default value=1 : if line 0 is enabled or disabled\n");
+   fprintf(stdout, " codec0=alaw|ulaw|slin|slin16, default value=alaw : codec used for line 0\n");
+   fprintf(stdout, " line1=0|1, default value=0 : if line 1 is enabled or disabled\n");
+   fprintf(stdout, " codec1=alaw|ulaw|slin|slin16, default value=alaw : codec used for line 1\n");
+   fprintf(stdout, " output=path_to_file, no default value : in test echo the name of the file where to save data received from the driver\n");
+   fprintf(stdout, " tone=none|waiting_dial|invalid|ringback|busy|disconnect|0|1|2|3|4|5|6|7|8|9|a|b|c|d|*|#, default value=waiting_dial : the tone to emit in test 'tone' but also in test 'echo' just after the user hook of the phone\n");
+   fprintf(stdout, " on=[0-8191], default value=8191 : the time in msecs the tone must be on. If null and 'off' is not null the tone will be on for 'off' msecs and stops. If null and off is null too used default values of the driver\n");
+   fprintf(stdout, " off=[0-8191], default value=0 : the time in msecs the tone must be off. If null and 'on' is not null, the tone will be played continuously\n");
+}
+
 int main(int argc, char *argv[])
 {
    const char *which_test = NULL;
@@ -2034,10 +2085,12 @@ int main(int argc, char *argv[])
             prm_output = value;
             continue;
          }
+#ifdef BCMPH_NOHW
          if (((ARRAY_SIZE(prm_name_input) - 1) == name_len) && (0 == strncasecmp(name, prm_name_input, name_len))) {
             prm_input = value;
             continue;
          }
+#endif // BCMPH_NOHW
          fprintf(stderr, "Arg '%s' is ignored because it's unknown\n", argv[i]);
          pause = 1;
       }
@@ -2058,28 +2111,31 @@ int main(int argc, char *argv[])
       fgetc(stdin);
    }
 
-   if (NULL == which_test) {
-      which_test = "loopback";
-   }
-   if (0 == strcasecmp(which_test, "loopback")) {
-      return (test_loopback());
-   }
-   else if (0 == strcasecmp(which_test, "loopback_mm")) {
-      return (test_loopback_mm());
-   }
-   else if (0 == strcasecmp(which_test, "echo")) {
-      return (test_echo());
-   }
-   else if (0 == strcasecmp(which_test, "tone")) {
-      return (test_tone());
-   }
+   if (NULL != which_test) {
+      if (0 == strcasecmp(which_test, "loopback")) {
+         return (test_loopback());
+      }
+      else if (0 == strcasecmp(which_test, "loopback_mm")) {
+         return (test_loopback_mm());
+      }
+      else if (0 == strcasecmp(which_test, "echo")) {
+         return (test_echo());
+      }
+      else if (0 == strcasecmp(which_test, "tone")) {
+         return (test_tone());
+      }
 #ifdef BCMPH_NOHW
-   else if (0 == strcasecmp(which_test, "decode_mpi")) {
-      return (decode_mpi_data());
-   }
+      else if (0 == strcasecmp(which_test, "decode_mpi")) {
+         return (decode_mpi_data());
+      }
 #endif // BCMPH_NOHW
+      else {
+         fprintf(stderr, "Don't know what to do\n");
+         print_usage();
+      }
+   }
    else {
-      fprintf(stderr, "Don't know what to do\n");
+      print_usage();
    }
 
    return (-1);

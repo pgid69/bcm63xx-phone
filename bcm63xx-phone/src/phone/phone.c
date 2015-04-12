@@ -56,7 +56,7 @@ phone_device_t * __init phone_device_alloc(
    switch (dev_desc->type) {
 #ifdef VP_CC_880_SERIES
       case BCMPH_VD_ZARLINK_88221: {
-         phone_dev_le88221_t *dev = kmalloc(sizeof(phone_dev_le88221_t), GFP_KERNEL | __GFP_ZERO | __GFP_NORETRY);
+         phone_dev_le88221_t *dev = (phone_dev_le88221_t *)(kmalloc(sizeof(phone_dev_le88221_t), GFP_KERNEL | __GFP_ZERO | __GFP_NORETRY));
          if (NULL == dev) {
             bcm_pr_err("Cannot allocate %lu bytes for device Zarlink Le88221\n",
                (unsigned long)(sizeof(phone_dev_le88221_t)));

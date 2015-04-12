@@ -95,7 +95,7 @@ static int bcm_drv_set_line_mode(bcm_drv_t *t, size_t line,
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_drv_set_line_mode(line=%lu, mode=%d, tone=%lu, wait=%d)\n",
+   d_bcm_pr_debug("bcm_drv_set_line_mode(line=%lu, mode=%d, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (int)(mode), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait) && (BCMPH_MODE_OFF_TALKING != mode))
@@ -150,7 +150,7 @@ static int bcm_drv_set_line_tone(bcm_drv_t *t, size_t line, __u32 tone,
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_drv_set_line_tone(line=%lu, tone=%lu, wait=%d)\n",
+   d_bcm_pr_debug("bcm_drv_set_line_tone(line=%lu, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -268,7 +268,7 @@ static int bcm_drv_set_line_codec(bcm_drv_t *t, size_t line,
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_drv_set_line_codec(line=%lu, codec=%d, mode=%d, tone=%lu)\n",
+   d_bcm_pr_debug("bcm_drv_set_line_codec(line=%lu, codec=%d, mode=%d, tone=0x%lx)\n",
       (unsigned long)(line), (int)(codec), (int)(mode), (unsigned long)(tone));
 
    bcm_assert((NULL != lock) && (bcmph_mutex_is_locked(lock)));
@@ -878,7 +878,7 @@ long bcm_drv_unlocked_ioctl(struct file *filp,
              unsigned int cmd, unsigned long arg)
 {
    long ret = 0;
-   bcm_drv_t *t = filp->private_data;
+   bcm_drv_t *t = (bcm_drv_t *)(filp->private_data);
    bcmph_mutex_t lock;
 
    dd_bcm_pr_debug("bcm_drv_unlocked_ioctl(cmd %u)\n", (unsigned int)(cmd));

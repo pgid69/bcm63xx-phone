@@ -57,6 +57,11 @@ struct file {
    int f_flags;
 };
 
+static inline bool is_power_of_2(size_t val)
+{
+   return ((~((val - 1) ^ (~(val - 1)))) == 0);
+}
+
 static inline void clear_bit(int bit, unsigned long *addr)
 {
    *addr &= (~(1UL << bit));

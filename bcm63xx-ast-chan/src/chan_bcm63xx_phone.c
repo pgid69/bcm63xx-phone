@@ -1959,12 +1959,6 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
             ret = 0;
             break;
          }
-         case AST_CONTROL_PROGRESS: {
-            /* We don't emit a tone in this case */
-            bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_NONE), 0);
-            ret = 0;
-            break;
-         }
          case AST_CONTROL_RINGING: {
             bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_RINGBACK), 0);
             ret = 0;
@@ -1972,16 +1966,22 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
          }
          case AST_CONTROL_HOLD: {
             ast_moh_start(ast, data, NULL);
+            ret = 0;
             break;
          }
          case AST_CONTROL_UNHOLD: {
             ast_moh_stop(ast);
+            ret = 0;
             break;
          }
+         case AST_CONTROL_PROGRESS:
+         case AST_CONTROL_PROCEEDING:
+         case AST_CONTROL_VIDUPDATE:
          case AST_CONTROL_SRCUPDATE: {
             ret = 0;
             break;
          }
+         case AST_CONTROL_INCOMPLETE:
          case AST_CONTROL_PVT_CAUSE_CODE: {
             break;
          }
@@ -2094,8 +2094,8 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
       }
 
       if ((BCMPH_MODE_OFF_TALKING != pvt->ast_channel.current_mode)
-          || (BCMPH_TONE_NONE != pvt->ast_channel.current_tone)) {
-         /* Don't try to send audio on-hook or when a tone is emitted */
+          /* || (BCMPH_TONE_NONE != pvt->ast_channel.current_tone) */) {
+         /* Don't try to send audio on-hook (but not when emitting a tone) */
          ast_log(AST_LOG_WARNING, "Trying to send audio while not in correct mode\n");
          break;
       }

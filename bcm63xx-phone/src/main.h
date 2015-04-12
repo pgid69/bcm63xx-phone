@@ -44,6 +44,19 @@
 // The alignment used for structures in the mmap_buffer
 #define BCMPH_MMAP_ALIGNMENT 8
 
+typedef enum {
+      BCMPH_TRF_NO_OP,
+      BCMPH_TRF_M_8_BITS_C_xLAW,
+      BCMPH_TRF_M_8_BITS_C_LINEAR,
+      BCMPH_TRF_M_8_BITS_C_LINEAR16,
+      BCMPH_TRF_M_16_BITS_C_xLAW,
+      BCMPH_TRF_M_16_BITS_C_LINEAR,
+      BCMPH_TRF_M_16_BITS_C_LINEAR16,
+#ifdef BCMPH_TEST_PCM
+      BCMPH_TRF_TEST_PCM
+#endif // BCMPH_TEST_PCM
+} bcm_drv_phone_line_type_transfer_t;
+
 typedef struct {
    // Index of device into phone_devices[]
    size_t index_dev;
@@ -61,18 +74,7 @@ typedef struct {
    // and the PCM mode (8 bits or 16 bits)
    size_t offset_first_pcm_channel;
    // Enum that tells the type of transfer between ring buffer and DMA frame
-   enum {
-      BCMPH_TRF_NO_OP,
-      BCMPH_TRF_M_8_BITS_C_xLAW,
-      BCMPH_TRF_M_8_BITS_C_LINEAR,
-      BCMPH_TRF_M_8_BITS_C_LINEAR16,
-      BCMPH_TRF_M_16_BITS_C_xLAW,
-      BCMPH_TRF_M_16_BITS_C_LINEAR,
-      BCMPH_TRF_M_16_BITS_C_LINEAR16,
-#ifdef BCMPH_TEST_PCM
-      BCMPH_TRF_TEST_PCM
-#endif // BCMPH_TEST_PCM
-   } type_transfer;
+   bcm_drv_phone_line_type_transfer_t type_transfer;
 } bcm_drv_phone_line_t;
 
 typedef struct {

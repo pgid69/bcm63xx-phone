@@ -72,23 +72,34 @@ typedef struct {
       void *obj;
       VpLineCtxType *ctx;
       struct {
-         const VpProfileDataType *profile;
-         VpDigitType tone_id;
-         __u16 on_tick_count;
-         __u16 off_tick_count;
+         bcm_phone_line_tone_t tone;
+         const VpProfileDataType *z_profile;
+         VpDigitType z_tone_id;
+         __u16 on_time;
+         __u16 off_time;
          bool is_on;
-         __u16 tick_count;
+         __u16 timer;
       } tone_cadencer;
       struct {
-         VpLineStateType mode_on;
-         VpLineStateType mode_off;
-         __u16 on_tick_count;
-         __u16 off_tick_count;
+         bcm_phone_line_mode_t mode_on;
+         bcm_phone_line_mode_t mode_off;
+         VpLineStateType z_mode_on;
+         VpLineStateType z_mode_off;
+         __u16 on_time;
+         __u16 off_time;
          bool is_on;
-         __u16 tick_count;
+         __u16 timer;
       } mode_cadencer;
    } lines[VP_MAX_LINES_PER_DEVICE];
-   __u32 tick_count;
+   /*
+    The timer when reaching 0 signals that we update the line state with codec,
+    mode and/or tone asked by ioctls.
+    We use a timer because we don't check the change at each call of tick
+    but at a slower rate.
+    We use a common timer for each line.
+    This is quite logical as we get all the line's state at once.
+   */
+   __u32 line_update_timer;
 } phone_dev_zarlink_t;
 
 typedef struct vtbl_phone_dev_zarlink {
