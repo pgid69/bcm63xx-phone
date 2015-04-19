@@ -165,10 +165,17 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="../bcm63xx-phone/src/phone/zarlink/le88221/slic_le88221.h" />
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/le88266/slic_le88266.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/le88266/slic_le88266.h" />
 		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/VE880_ABS100V_LITE_NB_PCM_Rev2_8.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/VE880_ABS100V_LITE_NB_PCM_Rev2_8.h" />
+		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/VE880_ABS100V_LITE_WB_PCM_Rev2_8.c">
+			<Option compilerVar="CC" />
+		</Unit>
 		<Unit filename="../bcm63xx-phone/src/phone/zarlink/profiles/profiles_common.c">
 			<Option compilerVar="CC" />
 		</Unit>

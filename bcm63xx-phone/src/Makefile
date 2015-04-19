@@ -26,6 +26,7 @@ BCMPH_SRCS += pcm/pcm.c
 BCMPH_SRCS += phone/phone.c
 BCMPH_SRCS += phone/phone_mgr.c
 BCMPH_SRCS += phone/zarlink/le88221/slic_le88221.c
+BCMPH_SRCS += phone/zarlink/le88266/slic_le88266.c
 BCMPH_SRCS += phone/zarlink/zarlink_common.c
 BCMPH_SRCS += timer/timer.c
 BCMPH_SRCS += wait_queue/wait_queue.c

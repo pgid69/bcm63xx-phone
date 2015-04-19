@@ -24,11 +24,11 @@
  *  India (IN), Iceland (IS), Italy (IT), Japan (JP), S. Korea (KR), Mexico (MX), Malaysia (MY), Netherlands (NL),
  *  Norway (NO), New Zealand (NZ), Poland (PL), Portugal (PT), Russian Federation (RU), Sweden (SE), Singapore (SG),
  *  Thailand (TH), Turkey (TK), Taiwan (TW), USA (US), and South Africa (ZA).
- *  2. The coefficients in this and all releases are provided for use only with the Microsemi VoicePath API-II (VP-API-II). Please refer 
- *  to the terms and conditions for licensing the software regarding terms and conditions of usage. These profiles are provided for 
+ *  2. The coefficients in this and all releases are provided for use only with the Microsemi VoicePath API-II (VP-API-II). Please refer
+ *  to the terms and conditions for licensing the software regarding terms and conditions of usage. These profiles are provided for
  *  reference only with no guarantee whatsoever by Microsemi Corporation.
  *  3. This release is for the VE880 ABS devices and chipsets with PCM/MPI host interfaces including Le88266 and Le88286.
- *  
+ *
  *  II. Device Profile:
  *  1. The default settings for the Device Profile are:
  *         PCLK = 8192 kHz
@@ -41,44 +41,44 @@
  *         Battery Sense Input: VBL=SWVSY, VBM=XB, VBH=SWVSZ
  *         Switching Frequency: LP=48kHz, MP=96kHz, HP=384kHz
  *         Driver Tick Rate = 5 ms
- *  
- *  2. These settings correspond to a VBL = -27V and VBH = -81V. It is possible to change these settings for a maximum VBL = -30V and 
+ *
+ *  2. These settings correspond to a VBL = -27V and VBH = -81V. It is possible to change these settings for a maximum VBL = -30V and
  *  VBH = -90V.
  *  3. These settings are for VBL regulation. VBH is only regulated via transformer coupling.
- *  4. The settings may be changed by the user as necessary.  Please refer to the VE880 and VP-API-II documentation for information 
+ *  4. The settings may be changed by the user as necessary.  Please refer to the VE880 and VP-API-II documentation for information
  *  about the supported settings.
- *  
+ *
  *  II. AC Profiles:
  *  1. FXS Coefficients assume -6dBr RX (Output from chipset) and 0dB TX relative gain levels.
  *  2. Supported countries not individually listed should use the default 600R profile AC_FXS_RF14_600R_DEF.
- *  4. AC FXS Coefficients assume the use of two 7 ohm series resistors or PTCs. Customers using other PTC resistance values (such as 
+ *  4. AC FXS Coefficients assume the use of two 7 ohm series resistors or PTCs. Customers using other PTC resistance values (such as
  *  25ohms or 50 ohms) should not use these AC coefficients and can request alternate ones from Microsemi.
  *  5. This release includes Normal (or Narrowband) coefficients for the FXS port. Wideband coefficients are available upon request.
- *  
+ *
  *  III. DC Profile:
  *  1. The DC_FXS_VE880_ABS100V_DEF Profile is the default used for all countries.  Additional profiles may be created by the user if necessary.
- *  
+ *
  *  IV. Ring Profiles:
- *  1. RING_25HZ_VE880_ABS100V_DEF is the default ringing profile and should be used for all countries which do not have a listed ringing profile.  
+ *  1. RING_25HZ_VE880_ABS100V_DEF is the default ringing profile and should be used for all countries which do not have a listed ringing profile.
  *  The default ringing profile is set for a sine wave ringing with an amplitude of 50 Vrms and a frequency of 25 Hz.
- *  2. All ringing profiles on the list are sinusoidal with an amplitude of 70 Vpk (50Vrms) with no DC bias. 
- *  3. The ringing definitions may be changed based on the requirements of the target market as long as the total amplitude (AC +DC 
+ *  2. All ringing profiles on the list are sinusoidal with an amplitude of 70 Vpk (50Vrms) with no DC bias.
+ *  3. The ringing definitions may be changed based on the requirements of the target market as long as the total amplitude (AC +DC
  *  components) does not exceed the limits set forth in the VE880 data sheets.
- *  
+ *
  *  V. Tone Profiles:
  *  1. These profiles are available only in the full version of the VP-API-II.
- *  
+ *
  *  VI. Cadence Profiles:
  *  1. These profiles are available only in the full version of the VP-API-II.
- *  
+ *
  *  VII. Caller ID Profiles:
  *  1. These profiles are available only in the full version of the VP-API-II.
- *  
+ *
  *  VIII. Metering Profiles:
- *  1. Metering profiles are provided for 12kHz and 16kHz signaling. They are not currently listed by the countries that use them. 
- *  
+ *  1. Metering profiles are provided for 12kHz and 16kHz signaling. They are not currently listed by the countries that use them.
+ *
  *  (c) Copyright 2011 Microsemi Corporation. All rights reserved.
- *  
+ *
  *  -----------------------------------------------------------------------------------------------------------------------------------------------------
  */
 

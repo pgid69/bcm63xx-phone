@@ -83,6 +83,7 @@ typedef struct {
 typedef enum {
    BCMPH_VD_NONE = -1,
    BCMPH_VD_ZARLINK_88221,
+   BCMPH_VD_ZARLINK_88266,
    BCMPH_VD_MAX,
 } phone_dev_type_t;
 

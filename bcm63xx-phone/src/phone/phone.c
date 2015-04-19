@@ -16,6 +16,7 @@
 #include <mpi.h>
 #include <phone.h>
 #include "zarlink/le88221/slic_le88221.h"
+#include "zarlink/le88266/slic_le88266.h"
 
 // Include after system files
 #include <compile.h>
@@ -64,6 +65,24 @@ phone_device_t * __init phone_device_alloc(
          else {
             bcm_pr_debug("%lu bytes of memory allocated, starting at address 0x%lx\n", (unsigned long)(sizeof(phone_dev_le88221_t)), (unsigned long)(dev));
             if (phone_dev_le88221_init(dev, dev_desc, tick_period)) {
+               kfree(dev);
+            }
+            else {
+               ret = &(dev->ve880.vdz.vd);
+               bcm_assert(((void *)(ret)) == ((void *)(dev)));
+            }
+         }
+         break;
+      }
+      case BCMPH_VD_ZARLINK_88266: {
+         phone_dev_le88266_t *dev = (phone_dev_le88266_t *)(kmalloc(sizeof(phone_dev_le88266_t), GFP_KERNEL | __GFP_ZERO | __GFP_NORETRY));
+         if (NULL == dev) {
+            bcm_pr_err("Cannot allocate %lu bytes for device Zarlink Le88266\n",
+               (unsigned long)(sizeof(phone_dev_le88266_t)));
+         }
+         else {
+            bcm_pr_debug("%lu bytes of memory allocated, starting at address 0x%lx\n", (unsigned long)(sizeof(phone_dev_le88266_t)), (unsigned long)(dev));
+            if (phone_dev_le88266_init(dev, dev_desc, tick_period)) {
                kfree(dev);
             }
             else {
