@@ -145,12 +145,17 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
       // Check that they are enough room in the ring buffer
       if ((bcm_phone_mgr_line_rx_use_pcm(&(t->phone_mgr), i))
           && (bcm_ring_buf_get_free_space(rb) >= dpl->bytes_per_frame)) {
-         const __u8 *src0 = data + dpl->offset_first_pcm_channel;
-         bcm_assert((dpl->offset_first_pcm_channel + dpl->bytes_per_frame) <= data_len);
+         const __u8 *src0 = data + dpl->offset_first_block_pcm_channel;
          switch (dpl->type_transfer) {
             case BCMPH_TRF_M_8_BITS_C_xLAW: {
-               /* A sample is just a byte. Transfer is straightforward */
-               bcm_assert(BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame);
+               /*
+                A sample is just a byte.
+                Data must be read from the 1st chanrnel of the 1st PCM
+                block.
+                Transfer is straightforward
+               */
+               bcm_assert((BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_add(rb, src0, BCMPH_PCM_CHANNEL_WIDTH);
                break;
             }
@@ -162,14 +167,16 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                 timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian, so the most significant byte
-                must be read from the 1st PCM channel and the least
-                significant byte must be read from the next PCM channel
+                must be read from the 1st PCM channel of the 1st PCM
+                block and the least significant byte must be read from
+                the next PCM channel in the same block
                 (cf channel allocation in bcm_drv_start())
                */
-               __u8 temp[2 * BCMPH_PCM_CHANNEL_WIDTH];
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 2];
                const __u8 *src1 = src0 + BCMPH_PCM_CHANNEL_WIDTH;
                __u8 *dst = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= data_len));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
                   *dst = *src0;
                   dst += 1;
@@ -188,25 +195,29 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                 1st timeslot and the least significant byte of the 1st
                 word is in the next timeslot.
                 The most significant byte of the 2nd word is in the
-                (first timeslot + (max_timeslots / 2)) and the least
+                (1st timeslot + (max_timeslots / 2)) and the least
                 significant byte of the 2nd word is in the next
                 timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian, so the most significant byte of
-                the 1st word must be read from the 1st PCM channel, the
-                least significant byte of the 1st word must be read from
-                the 2nd PCM channel, the most significant byte of the
-                2nd word must be read from the 3rd PCM channel and the
-                least significant byte of the 2nd word must be read from
-                the 4th PCM channel
+                the 1st word must be read from the 1st PCM channel of
+                the 1st PCM block, the least significant byte of the 1st
+                word must be read from the 2nd PCM channel of the 1st
+                PCM block, the most significant byte of the 2nd word
+                must be read from the 1st PCM channel of the 2nd PCM
+                block and the least significant byte of the 2nd word
+                must be read from the 2nd PCM channel of the 2nd PCM
+                block
                 (cf channel allocation in bcm_drv_start())
                */
-               __u8 temp[4 * BCMPH_PCM_CHANNEL_WIDTH];
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 4];
                const __u8 *src1 = src0 + BCMPH_PCM_CHANNEL_WIDTH;
-               const __u8 *src2 = src1 + BCMPH_PCM_CHANNEL_WIDTH;
+               const __u8 *src2 = data + dpl->offset_second_block_pcm_channel;
                const __u8 *src3 = src2 + BCMPH_PCM_CHANNEL_WIDTH;
                __u8 *dst = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= data_len));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
                   *dst = *src0;
                   dst += 1;
@@ -224,17 +235,45 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                bcm_ring_buf_add(rb, temp, ARRAY_SIZE(temp));
                break;
             }
+            case BCMPH_TRF_M_8_BITS_C_xLAW16: {
+               /*
+                A sample is just a byte but we have two samples per
+                frame. The 1st sample is in the 1st timeslot and the 2nd
+                sample is in (1st timeslot + (max_timeslots / 2)).
+                The 1st sample must be read from the 1st PCM channel of
+                the 1st PCM block and the 2nd sample must be read from
+                the 1st PCM channel of the 2nd PCM block
+                (cf channel allocation in bcm_drv_start())
+               */
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 2];
+               const __u8 *src1 = data + dpl->offset_second_block_pcm_channel;
+               __u8 *dst = temp;
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
+               for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
+                  *dst = *src0;
+                  dst += 1;
+                  src0 += 1;
+                  *dst = *src1;
+                  dst += 1;
+                  src1 += 1;
+               }
+               bcm_ring_buf_add(rb, temp, ARRAY_SIZE(temp));
+               break;
+            }
             case BCMPH_TRF_M_16_BITS_C_xLAW: {
                /*
                 A sample is just a byte.
                 It is in the 1st timeslot.
-                As the platform is big endian the byte must be read in
+                As the platform is big endian the byte must be read from
                 the most significant byte of the words that
-                compose the PCM channel
+                compose the 1st PCM channel of the 1st PCM block
                */
                __u8 temp[(BCMPH_PCM_CHANNEL_WIDTH + 1) / 2];
                __u8 *dst = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 2) {
                   *dst = *src0;
                   dst += 1;
@@ -246,7 +285,8 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
             case BCMPH_TRF_M_16_BITS_C_LINEAR: {
                /*
                 A sample is a word of 2 bytes.
-                The two bytes are read from the same PCM channel.
+                The 2 bytes are read from the 1st PCM channel of the
+                1st PCM block
                 The most significant byte is in the 1st timeslot,
                 and the least significant byte is in the 2nd
                 timeslot.
@@ -254,15 +294,17 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                 platform, ie big endian, so there no need to swap the
                 bytes
                */
-               bcm_assert(BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame);
+               bcm_assert((BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_add(rb, src0, BCMPH_PCM_CHANNEL_WIDTH);
                break;
             }
             case BCMPH_TRF_M_16_BITS_C_LINEAR16: {
                /*
                 A sample is a pair of word of 2 bytes
-                The 1st word is read from the 1st PCM channel and the
-                2nd word is read from the next PCM channel
+                The 1st word is read from the 1st PCM channel of the 1st
+                PCM block and the 2nd word is read from the 1st PCM
+                channel of the 2nd PCM block
                 (cf channel allocation in bcm_drv_start())
                 For each word the most significant byte is in the
                 1st timeslot and the least significant byte is in
@@ -270,10 +312,12 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                 We suppose the data is in the native endianness of the
                 platform, ie big endian.
                */
-               __u8 temp[2 * BCMPH_PCM_CHANNEL_WIDTH];
-               const __u8 *src1 = src0 + BCMPH_PCM_CHANNEL_WIDTH;
+               __u8 temp[((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 4];
+               const __u8 *src1 = data + dpl->offset_second_block_pcm_channel;
                __u8 *dst = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                /* We transfer bytes and not words, because
                 casting __u8 * to __u16 * can fail if __u8 * is not
                 correctly aligned */
@@ -294,8 +338,39 @@ static void bcm_drv_pcm_receive_cb(pcm_t *pcm,
                bcm_ring_buf_add(rb, temp, ARRAY_SIZE(temp));
                break;
             }
+            case BCMPH_TRF_M_16_BITS_C_xLAW16: {
+               /*
+                A sample is just a byte but we have two samples per
+                frame. The 1st sample is in the 1st timeslot and the 2nd
+                sample is in (1st timeslot + (max_timeslots / 2)).
+                As the platform is big endian the 1st byte must be read
+                from the most significant byte of the words that compose
+                the 1st PCM channel of the 1st PCM block, and the 2nd
+                byte must be read from the the most significant byte of
+                the words that compose the 1st PCM channel of the 2nd
+                PCM block
+                (cf channel allocation in bcm_drv_start())
+               */
+               __u8 temp[((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 2];
+               const __u8 *src1 = data + dpl->offset_second_block_pcm_channel;
+               __u8 *dst = temp;
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
+               for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 2) {
+                  *dst = *src0;
+                  dst += 1;
+                  src0 += 2;
+                  *dst = *src1;
+                  dst += 1;
+                  src1 += 2;
+               }
+               bcm_ring_buf_add(rb, temp, ARRAY_SIZE(temp));
+               break;
+            }
 #ifdef BCMPH_TEST_PCM
             case BCMPH_TRF_TEST_PCM: {
+               bcm_assert((dpl->offset_first_block_pcm_channel + dpl->bytes_per_frame) <= data_len);
                bcm_ring_buf_add(rb, src0, dpl->bytes_per_frame);
                break;
             }
@@ -453,32 +528,38 @@ static bool bcm_drv_pcm_send_cb(pcm_t *pcm,
 #endif // BCMPH_TEST_PCM
       // Check that they are enough data in the ring buffer
       if ((bcm_phone_mgr_line_tx_use_pcm(&(t->phone_mgr), i)) && (bcm_ring_buf_get_size(rb) >= dpl->bytes_per_frame)) {
-         __u8 *dst0 = data + dpl->offset_first_pcm_channel;
-         bcm_assert((dpl->offset_first_pcm_channel + dpl->bytes_per_frame) <= data_len);
+         __u8 *dst0 = data + dpl->offset_first_block_pcm_channel;
          frame_filled = true;
          switch (dpl->type_transfer) {
             case BCMPH_TRF_M_8_BITS_C_xLAW: {
-               /* A sample is just a byte. Transfer is straightforward */
-               bcm_assert(BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame);
+               /*
+                A sample is just a byte.
+                Data must be sent in 1st channel of the 1st PCM block
+                Transfer is straightforward
+               */
+               bcm_assert((BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_remove(rb, dst0, BCMPH_PCM_CHANNEL_WIDTH);
                break;
             }
             case BCMPH_TRF_M_8_BITS_C_LINEAR: {
                /*
                 A sample is a word of 2 bytes.
-                The most significant byte must be in the 1st timeslot
-                and the least significant byte must be in the next
+                The most significant byte is in the 1st timeslot
+                and the least significant byte is in the next
                 timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian, so the most significant byte
-                must be sent by the 1st PCM channel and the least
-                significant byte must be sent by the next PCM channel
+                must be sent in the 1st PCM channel of the 1st PCM
+                block and the least significant byte must be sent in
+                the next PCM channel in the same block
                 (cf channel allocation in bcm_drv_start())
                */
-               __u8 temp[2 * BCMPH_PCM_CHANNEL_WIDTH];
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 2];
                __u8 *dst1 = dst0 + BCMPH_PCM_CHANNEL_WIDTH;
                const __u8 *src = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= data_len));
                bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
                   *dst0 = *src;
@@ -493,29 +574,33 @@ static bool bcm_drv_pcm_send_cb(pcm_t *pcm,
             case BCMPH_TRF_M_8_BITS_C_LINEAR16: {
                /*
                 A sample is a pair of word of 2 bytes
-                The most significant byte of the 1st word must be in the
+                The most significant byte of the 1st word is in the
                 1st timeslot and the least significant byte of the 1st
-                word must be in the next timeslot.
-                The most significant byte of the 2nd word must be in the
-                (first timeslot + (max_timeslots / 2)) and the least
-                significant byte of the 2nd word must be in the next
+                word is in the next timeslot.
+                The most significant byte of the 2nd word is in the
+                (1st timeslot + (max_timeslots / 2)) and the least
+                significant byte of the 2nd word is in the next
                 timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian, so the most significant byte of
-                the 1st word must be sent by the 1st PCM channel, the
-                least significant byte of the 1st word must be sent by
-                the 2nd PCM channel, the most significant byte of the
-                2nd word must be sent by the 3rd PCM channel and the
-                least significant byte of the 2nd word must be sent by
-                the 4th PCM channel
+                the 1st word must be sent in the 1st PCM channel of
+                the 1st PCM block, the least significant byte of the 1st
+                word must be sent in the 2nd PCM channel of the 1st
+                PCM block, the most significant byte of the 2nd word
+                must be sent in the 1st PCM channel of the 2nd PCM
+                block and the least significant byte of the 2nd word
+                must be sent in the 2nd PCM channel of the 2nd PCM
+                block
                 (cf channel allocation in bcm_drv_start())
                */
-               __u8 temp[4 * BCMPH_PCM_CHANNEL_WIDTH];
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 4];
                __u8 *dst1 = dst0 + BCMPH_PCM_CHANNEL_WIDTH;
-               __u8 *dst2 = dst1 + BCMPH_PCM_CHANNEL_WIDTH;
+               __u8 *dst2 = data + dpl->offset_second_block_pcm_channel;
                __u8 *dst3 = dst2 + BCMPH_PCM_CHANNEL_WIDTH;
                const __u8 *src = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + (BCMPH_PCM_CHANNEL_WIDTH * 2)) <= data_len));
                bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
                   *dst0 = *src;
@@ -533,17 +618,45 @@ static bool bcm_drv_pcm_send_cb(pcm_t *pcm,
                }
                break;
             }
+            case BCMPH_TRF_M_8_BITS_C_xLAW16: {
+               /*
+                A sample is just a byte but we have two samples per
+                frame. The 1st sample is in the 1st timeslot and the 2nd
+                sample is (1st timeslot + (max_timeslots / 2)).
+                The 1st sample must be sent in the 1st PCM channel of
+                the 1st PCM block and the 2nd sample must be sent in
+                the 1st PCM channel in the 2nd PCM block
+                (cf channel allocation in bcm_drv_start())
+               */
+               __u8 temp[BCMPH_PCM_CHANNEL_WIDTH * 2];
+               __u8 *dst1 = data + dpl->offset_second_block_pcm_channel;
+               const __u8 *src = temp;
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
+               bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
+               for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 1) {
+                  *dst0 = *src;
+                  dst0 += 1;
+                  src += 1;
+                  *dst1 = *src;
+                  dst1 += 1;
+                  src += 1;
+               }
+               break;
+            }
             case BCMPH_TRF_M_16_BITS_C_xLAW: {
                /*
                 A sample is just a byte.
-                It must be in the 1st timeslot.
-                As the platform is big endian the byte must be put in
+                It is in the 1st timeslot.
+                As the platform is big endian the byte must be sent in
                 the most significant byte of the words that
-                compose the PCM channel
+                compose the 1st PCM channel of the 1st PCM block
                */
                __u8 temp[(BCMPH_PCM_CHANNEL_WIDTH + 1) / 2];
                const __u8 *src = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
                for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 2) {
                   *dst0 = *src;
@@ -555,34 +668,39 @@ static bool bcm_drv_pcm_send_cb(pcm_t *pcm,
             case BCMPH_TRF_M_16_BITS_C_LINEAR: {
                /*
                 A sample is a word of 2 bytes.
-                The two bytes are sent by the same PCM channel.
-                The most significant byte must be in the 1st timeslot,
-                and the least significant byte must be in the 2nd
+                The 2 bytes are sent in the 1st PCM channel of the
+                1st PCM block
+                The most significant byte is in the 1st timeslot,
+                and the least significant byte is in the 2nd
                 timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian, so there no need to swap the
                 bytes
                */
-               bcm_assert(BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame);
+               bcm_assert((BCMPH_PCM_CHANNEL_WIDTH == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_remove(rb, dst0, BCMPH_PCM_CHANNEL_WIDTH);
                break;
             }
             case BCMPH_TRF_M_16_BITS_C_LINEAR16: {
                /*
                 A sample is a pair of word of 2 bytes
-                The 1st word is sent by the 1st PCM channel and the 2nd
-                word is sent by the next PCM channel
+                The 1st word is sent in the 1st PCM channel of the 1st
+                PCM block and the 2nd word is sent in the 1st PCM
+                channel of the 2nd PCM block
                 (cf channel allocation in bcm_drv_start())
-                For each word the most significant byte must be in the
-                1st timeslot and the least significant byte must be in
+                For each word the most significant byte is in the
+                1st timeslot and the least significant byte is in
                 the 2nd timeslot.
                 We suppose the data is in the native endianness of the
                 platform, ie big endian.
                */
-               __u8 temp[2 * BCMPH_PCM_CHANNEL_WIDTH];
-               __u8 *dst1 = dst0 + BCMPH_PCM_CHANNEL_WIDTH;
+               __u8 temp[((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 4];
+               __u8 *dst1 = data + dpl->offset_second_block_pcm_channel;
                const __u8 *src = temp;
-               bcm_assert(ARRAY_SIZE(temp) == dpl->bytes_per_frame);
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
                bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
                /* We transfer bytes and not words, because
                 casting __u8 * to __u16 * can fail if __u8 * is not
@@ -603,8 +721,39 @@ static bool bcm_drv_pcm_send_cb(pcm_t *pcm,
                }
                break;
             }
+            case BCMPH_TRF_M_16_BITS_C_xLAW16: {
+               /*
+                A sample is just a byte but we have two samples per
+                frame. The 1st sample is in the 1st timeslot and the 2nd
+                sample is in (1st timeslot + (max_timeslots / 2)).
+                As the platform is big endian the 1st byte must be sent
+                in the most significant byte of the words that compose
+                the 1st PCM channel of the 1st PCM block, and the 2nd
+                byte must be sent in the the most significant byte of
+                the words that compose the 1st PCM channel of the 2nd
+                PCM block
+                (cf channel allocation in bcm_drv_start())
+               */
+               __u8 temp[((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 2];
+               const __u8 *src = temp;
+               __u8 *dst1 = data + dpl->offset_second_block_pcm_channel;
+               bcm_assert((ARRAY_SIZE(temp) == dpl->bytes_per_frame)
+                  && ((dpl->offset_first_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= dpl->offset_second_block_pcm_channel)
+                  && ((dpl->offset_second_block_pcm_channel + BCMPH_PCM_CHANNEL_WIDTH) <= data_len));
+               bcm_ring_buf_remove(rb, temp, ARRAY_SIZE(temp));
+               for (i = 0; (i < BCMPH_PCM_CHANNEL_WIDTH); i += 2) {
+                  *dst0 = *src;
+                  dst0 += 2;
+                  src += 1;
+                  *dst1 = *src;
+                  dst1 += 2;
+                  src += 1;
+               }
+               break;
+            }
 #ifdef BCMPH_TEST_PCM
             case BCMPH_TRF_TEST_PCM: {
+               bcm_assert((dpl->offset_first_block_pcm_channel + dpl->bytes_per_frame) <= data_len);
                bcm_ring_buf_remove(rb, dst0, dpl->bytes_per_frame);
                break;
             }

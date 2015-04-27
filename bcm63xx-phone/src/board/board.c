@@ -347,10 +347,8 @@ static phone_desc_t hw553_phone_desc = {
       {
          .type = BCMPH_VD_ZARLINK_88221,
          .caps = BCMPH_CAPS_REQUIRES_RESET
-#ifdef BCMPH_TEST_PCM
-            | BCMPH_CAPS_LINEAR16_CODEC
-#endif // BCMPH_TEST_PCM
-            | BCMPH_CAPS_ALAW_CODEC | BCMPH_CAPS_ULAW_CODEC | BCMPH_CAPS_LINEAR_CODEC,
+            | BCMPH_CAPS_ALAW_CODEC | BCMPH_CAPS_ULAW_CODEC
+            | BCMPH_CAPS_LINEAR_CODEC,
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
@@ -486,7 +484,8 @@ static phone_desc_t hw556_phone_desc = {
          .type = BCMPH_VD_ZARLINK_88266,
          .caps = BCMPH_CAPS_REQUIRES_RESET
             | BCMPH_CAPS_ALAW_CODEC | BCMPH_CAPS_ULAW_CODEC
-            | BCMPH_CAPS_LINEAR_CODEC | BCMPH_CAPS_LINEAR16_CODEC,
+            | BCMPH_CAPS_LINEAR_CODEC | BCMPH_CAPS_LINEAR16_CODEC
+            | BCMPH_CAPS_ALAW16_CODEC | BCMPH_CAPS_ULAW16_CODEC,
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
@@ -549,7 +548,7 @@ static board_desc_t board_generic_desc = {
    .name = "generic",
    .cpu_desc = &(cpu_generic_desc),
    .pcm_desc = &(pcm_generic_desc),
-   .phone_desc = &(hw553_phone_desc),
+   .phone_desc = &(hw556_phone_desc),
 };
 #endif // BCMPH_NOHW
 

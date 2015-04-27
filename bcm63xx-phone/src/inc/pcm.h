@@ -29,7 +29,8 @@
 #define BCMPH_PCM_MAX_CHANNELS   8
 /* Width in bytes of a PCM channel : depending of the codec used it contains
  2 (BCMPH_CODEC_LINEAR16 or BCMPH_CODEC_LINEAR) or
- 4 samples (BCMPH_CODEC_ALAW or BCMPH_CODEC_ULAW if PCM set in 8 bits mode) */
+ 4 samples (BCMPH_CODEC_ALAW, BCMPH_CODEC_ALAW16, BCMPH_CODEC_ULAW or
+ BCMPH_CODEC_ULAW16 if PCM set in 8 bits mode) */
 #define BCMPH_PCM_CHANNEL_WIDTH  4
 
 /* The number of bytes of a frame transferred to or from the PCM module by DMA

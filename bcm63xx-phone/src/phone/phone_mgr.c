@@ -181,6 +181,18 @@ bool bcm_phone_mgr_line_supports_codec(const bcm_phone_mgr_t *t, size_t line, bc
             break;
          }
       }
+      else if (BCMPH_CODEC_ALAW16 == codec) {
+         // Check that device support ALAW16 codec
+         if (0 == (desc->caps & BCMPH_CAPS_ALAW16_CODEC)) {
+            break;
+         }
+      }
+      else if (BCMPH_CODEC_ULAW16 == codec) {
+         // Check that device support ULAW16 codec
+         if (0 == (desc->caps & BCMPH_CAPS_ULAW16_CODEC)) {
+            break;
+         }
+      }
       else {
          // Unsupported codec
          break;
@@ -192,8 +204,19 @@ bool bcm_phone_mgr_line_supports_codec(const bcm_phone_mgr_t *t, size_t line, bc
    return (ret);
 }
 
-bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t, size_t line,
-   bcm_phone_codec_t old_codec, bcm_phone_codec_t new_codec)
+static inline bool bcm_phone_mgr_codec_is_wideband(bcm_phone_codec_t codec)
+{
+   if ((BCMPH_CODEC_LINEAR16 == codec) || (BCMPH_CODEC_ALAW16 == codec)
+       || (BCMPH_CODEC_ULAW16 == codec)) {
+      return (true);
+   }
+   else {
+      return (false);
+   }
+}
+
+bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t,
+   size_t line, bcm_phone_codec_t old_codec, bcm_phone_codec_t new_codec)
 {
    bool ret = false;
 
@@ -202,17 +225,33 @@ bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t, size_t lin
 
    bcm_assert(line < t->phone_line_count);
 
-   // We forbids changing to or from BCMPH_CODEC_LINEAR16
-   if (BCMPH_CODEC_LINEAR16 == old_codec) {
-      if (BCMPH_CODEC_LINEAR16 == new_codec) {
-         ret = true;
+   do { /* Empty loop */
+      const bcm_phone_mgr_line_t *pl;
+      const phone_device_t *dev;
+      const phone_desc_device_t *desc;
+
+      if (bcm_phone_mgr_codec_is_wideband(old_codec)) {
+         if (bcm_phone_mgr_codec_is_wideband(new_codec)) {
+            ret = true;
+            break;
+         }
       }
-   }
-   else {
-      if (BCMPH_CODEC_LINEAR16 != new_codec) {
-         ret = true;
+      else {
+         if (!bcm_phone_mgr_codec_is_wideband(new_codec)) {
+            ret = true;
+            break;
+         }
       }
-   }
+
+      pl = &(t->phone_lines[line]);
+      dev = t->phone_devices[pl->index_dev].dev;
+      desc = phone_device_get_desc(dev);
+      if ((desc->caps & BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB)) {
+         bcm_assert((desc->caps & BCMPH_CAPS_CAN_MIX_NB_AND_WB));
+         ret = true;
+         break;
+      }
+   } while (false);
 
    return (ret);
 }
@@ -608,8 +647,8 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
             const phone_line_params_t *line_params[BCMPH_MAX_LINES_PER_DEV];
             size_t j;
             size_t k;
-            size_t are_not_linear16;
-            size_t are_linear16;
+            size_t are_narrowband;
+            size_t are_wideband;
 
             bcm_assert(phone_device_get_line_count(t->phone_devices[i].dev) <= ARRAY_SIZE(line_params));
 
@@ -628,23 +667,27 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
             }
             bcm_assert(k == t->phone_devices[i].line_enable_count);
 
-            // Now we check that all lines are LINEAR16 or not
-            are_not_linear16 = 0;
-            are_linear16 = 0;
+            // Now we check that all lines are wideband or not
+            are_narrowband = 0;
+            are_wideband = 0;
             for (j = 0; (j < ARRAY_SIZE(line_params)); j += 1) {
                if (NULL != line_params[j]) {
-                  if (BCMPH_CODEC_LINEAR16 == line_params[j]->codec) {
-                     are_linear16 += 1;
+                  if (bcm_phone_mgr_codec_is_wideband(line_params[j]->codec)) {
+                     are_wideband += 1;
                   }
                   else {
-                     are_not_linear16 += 1;
+                     are_narrowband += 1;
                   }
                }
             }
-            if ((0 != are_linear16) && (0 != are_not_linear16)) {
-               bcm_pr_err("All or none of the lines of the same device, can use LINEAR16 codec\n");
-               ret = -EINVAL;
-               break;
+            if ((0 != are_wideband) && (0 != are_narrowband)) {
+               const phone_desc_device_t *desc = phone_device_get_desc(t->phone_devices[i].dev);
+               if (!(desc->caps & BCMPH_CAPS_CAN_MIX_NB_AND_WB)) {
+                  bcm_assert(!(desc->caps & BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB));
+                  bcm_pr_err("All or none of the lines of the same device, can use wideband codec\n");
+                  ret = -EINVAL;
+                  break;
+               }
             }
             ret = (*(t->phone_devices[i].dev->vtbl->start))(
                t->phone_devices[i].dev, country, line_params,
@@ -689,6 +732,7 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
 
    ret = 0;
    for (i = 0; (i < t->board_desc->phone_desc->device_count); i += 1) {
+      const phone_desc_device_t *desc = &(t->board_desc->phone_desc->devices[i]);
       phone_device_t *dev;
       size_t j;
       size_t line_count;
@@ -699,7 +743,14 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
          break;
       }
 
-      dev = phone_device_alloc(&(t->board_desc->phone_desc->devices[i]), t->board_desc->phone_desc->tick_period);
+      if (!(desc->caps & BCMPH_CAPS_CAN_MIX_NB_AND_WB)) {
+         if ((desc->caps & BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB)) {
+            bcm_assert(false);
+            continue;
+         }
+      }
+
+      dev = phone_device_alloc(desc, t->board_desc->phone_desc->tick_period);
       if (NULL == dev) {
          ret = -ENOMEM;
          break;
@@ -707,6 +758,7 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
 
       t->phone_devices[t->phone_dev_count].dev = dev;
       t->phone_dev_count += 1;
+
       line_count = phone_device_get_line_count(dev);
       if ((line_count <= 0) || (line_count > BCMPH_MAX_LINES_PER_DEV)) {
          bcm_assert(false);

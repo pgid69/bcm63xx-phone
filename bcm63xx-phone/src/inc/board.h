@@ -88,11 +88,32 @@ typedef enum {
 } phone_dev_type_t;
 
 enum {
-   BCMPH_CAPS_REQUIRES_RESET = 0x0001,      // The device requires reset (through GPIO)
+   // The device requires reset (through GPIO)
+   BCMPH_CAPS_REQUIRES_RESET = 0x0001,
+   // The device supports codec BCMPH_CODEC_ALAW
    BCMPH_CAPS_ALAW_CODEC = 0x0002,
+   // The device supports codec BCMPH_CODEC_ULAW
    BCMPH_CAPS_ULAW_CODEC = 0x0004,
+   // The device supports codec BCMPH_CODEC_LINEAR
    BCMPH_CAPS_LINEAR_CODEC = 0x0008,
+   // The device supports codec BCMPH_CODEC_LINEAR16
    BCMPH_CAPS_LINEAR16_CODEC = 0x0010,
+   // The device supports codec BCMPH_CODEC_ALAW16
+   BCMPH_CAPS_ALAW16_CODEC = 0x0020,
+   // The device supports codec BCMPH_CODEC_ULAW16
+   BCMPH_CAPS_ULAW16_CODEC = 0x0040,
+   // The device can have some lines in narrowband and some line in
+   // wideband mode
+   // For examples flag is not set for Le88266 because all lines must be
+   // in narrowband or in wideband simultaneously
+   BCMPH_CAPS_CAN_MIX_NB_AND_WB = 0x0100,
+   // The device can switch lines between narrowband and wideband mode
+   // without restarting device
+   // This flag must not be set is flag BCMPH_CAPS_CAN_MIX_NB_AND_WB is
+   // not set.
+   // For example, for most of Zarlink devices flag is not set because
+   // profiles used in narrowband and wideband are not the same
+   BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB = 0x0200,
 
    GPIO_IS_ACTIVE_LOW = 0x8000,
    GPIO_IS_INVALID = 0xFFFF

@@ -49,9 +49,11 @@ typedef enum {
       BCMPH_TRF_M_8_BITS_C_xLAW,
       BCMPH_TRF_M_8_BITS_C_LINEAR,
       BCMPH_TRF_M_8_BITS_C_LINEAR16,
+      BCMPH_TRF_M_8_BITS_C_xLAW16,
       BCMPH_TRF_M_16_BITS_C_xLAW,
       BCMPH_TRF_M_16_BITS_C_LINEAR,
       BCMPH_TRF_M_16_BITS_C_LINEAR16,
+      BCMPH_TRF_M_16_BITS_C_xLAW16,
 #ifdef BCMPH_TEST_PCM
       BCMPH_TRF_TEST_PCM
 #endif // BCMPH_TEST_PCM
@@ -68,11 +70,17 @@ typedef struct {
    bcm_ring_buf_t tx_ring_buf;
    // The number of bytes needed to fill a DMA frame
    size_t bytes_per_frame;
-   // The offset in bytes in the DMA frame of the first PCM channel
-   // carrying data for the line
-   // The number of adjacent PCM channels used depends upon the codec
-   // and the PCM mode (8 bits or 16 bits)
-   size_t offset_first_pcm_channel;
+   // PCM channels are reserved by blocks (see bcm_drv_start())
+   // The number of adjacent PCM channels in the block depends upon
+   // the codec and the PCM mode (8 bits or 16 bits)
+   // The first block is use for narrowband and wideband mode
+   // The second block is use for wideband mode
+   // The offset in bytes in the DMA frame of the first block of PCM
+   // channels carrying data for the line
+   size_t offset_first_block_pcm_channel;
+   // The offset in bytes in the DMA frame of the second block of PCM
+   // channels carrying data for the line
+   size_t offset_second_block_pcm_channel;
    // Enum that tells the type of transfer between ring buffer and DMA frame
    bcm_drv_phone_line_type_transfer_t type_transfer;
 } bcm_drv_phone_line_t;

@@ -23,6 +23,8 @@ typedef enum {
    BCMPH_CODEC_ULAW = 2,
    BCMPH_CODEC_LINEAR = 3,
    BCMPH_CODEC_LINEAR16 = 4,
+   BCMPH_CODEC_ALAW16 = 5,
+   BCMPH_CODEC_ULAW16 = 6,
    /* Must be the last constant of the enum */
    BCMPH_MAX_CODECS,
 } bcm_phone_codec_t;

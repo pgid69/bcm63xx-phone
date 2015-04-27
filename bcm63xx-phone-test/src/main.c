@@ -1789,6 +1789,16 @@ static int decode_codec(const char *value, bcm_phone_codec_t *codec)
          ret = 1;
          break;
       }
+      if (0 == strcasecmp(value, "alaw16")) {
+         *codec = BCMPH_CODEC_ALAW16;
+         ret = 1;
+         break;
+      }
+      if (0 == strcasecmp(value, "ulaw16")) {
+         *codec = BCMPH_CODEC_ULAW16;
+         ret = 1;
+         break;
+      }
       if (0 == strcasecmp(value, "slin16")) {
          *codec = BCMPH_CODEC_LINEAR16;
          ret = 1;
@@ -1942,9 +1952,9 @@ static void print_usage(void)
    fprintf(stdout, " default_line=0|1 : the line to use/test\n");
    fprintf(stdout, " use_16bits=0|1, default value=0 : if PCM use 16 bits timeslot or 8 bits timeslot\n");
    fprintf(stdout, " line0=0|1, default value=1 : if line 0 is enabled or disabled\n");
-   fprintf(stdout, " codec0=alaw|ulaw|slin|slin16, default value=alaw : codec used for line 0\n");
+   fprintf(stdout, " codec0=alaw|ulaw|slin|alaw16|ulaw16|slin16, default value=alaw : codec used for line 0\n");
    fprintf(stdout, " line1=0|1, default value=0 : if line 1 is enabled or disabled\n");
-   fprintf(stdout, " codec1=alaw|ulaw|slin|slin16, default value=alaw : codec used for line 1\n");
+   fprintf(stdout, " codec1=alaw|ulaw|slin|alaw16|ulaw16|slin16, default value=alaw : codec used for line 1\n");
    fprintf(stdout, " output=path_to_file, no default value : in test echo the name of the file where to save data received from the driver\n");
    fprintf(stdout, " tone=none|waiting_dial|invalid|ringback|busy|disconnect|0|1|2|3|4|5|6|7|8|9|a|b|c|d|*|#, default value=waiting_dial : the tone to emit in test 'tone' but also in test 'echo' just after the user hook of the phone\n");
    fprintf(stdout, " on=[0-8191], default value=8191 : the time in msecs the tone must be on. If null and 'off' is not null the tone will be on for 'off' msecs and stops. If null and off is null too used default values of the driver\n");

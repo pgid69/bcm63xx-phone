@@ -28,39 +28,63 @@ static void bcm_drv_set_bytes_per_frame(bcm_drv_t *t, bcm_drv_phone_line_t *dpl,
       if ((BCMPH_CODEC_ALAW == codec) || (BCMPH_CODEC_ULAW == codec)) {
          dpl->type_transfer = BCMPH_TRF_M_8_BITS_C_xLAW;
          // We need 1 timeslot/channel
+         // Data is in first channel of the first PCM block
          dpl->bytes_per_frame = BCMPH_PCM_CHANNEL_WIDTH;
       }
       else if (BCMPH_CODEC_LINEAR == codec) {
          dpl->type_transfer = BCMPH_TRF_M_8_BITS_C_LINEAR;
          // We need 2 timeslots/channels
-         dpl->bytes_per_frame = 2 * BCMPH_PCM_CHANNEL_WIDTH;
+         // Data is in first and second channels of the first PCM block
+         dpl->bytes_per_frame = BCMPH_PCM_CHANNEL_WIDTH * 2;
       }
-      else {
-         bcm_assert(BCMPH_CODEC_LINEAR16 == codec);
+      else if (BCMPH_CODEC_LINEAR16 == codec) {
          dpl->type_transfer = BCMPH_TRF_M_8_BITS_C_LINEAR16;
          // We need 4 timeslots/channels
-         dpl->bytes_per_frame = 4 * BCMPH_PCM_CHANNEL_WIDTH;
+         // Data is in first and second channels of the first PCM block
+         // and in the first and second channels of the second PCM block
+         dpl->bytes_per_frame = BCMPH_PCM_CHANNEL_WIDTH * 4;
+      }
+      else {
+         bcm_assert((BCMPH_CODEC_ALAW16 == codec) || (BCMPH_CODEC_ULAW16 == codec));
+         dpl->type_transfer = BCMPH_TRF_M_8_BITS_C_xLAW16;
+         // We need 2 timeslots/channel
+         // Data is in first channel of the first PCM block and in the first
+         // channel of the second PCM block
+         dpl->bytes_per_frame = BCMPH_PCM_CHANNEL_WIDTH * 2;
       }
    }
    else {
       if ((BCMPH_CODEC_ALAW == codec) || (BCMPH_CODEC_ULAW == codec)) {
          dpl->type_transfer = BCMPH_TRF_M_16_BITS_C_xLAW;
          // We need 1 timeslot/channel but we get/set only half of the bytes
+         // Data is in first channel of the first PCM block
          dpl->bytes_per_frame = (BCMPH_PCM_CHANNEL_WIDTH + 1) / 2;
       }
       else if (BCMPH_CODEC_LINEAR == codec) {
          dpl->type_transfer = BCMPH_TRF_M_16_BITS_C_LINEAR;
          // We need 1 timeslot/channel
+         // Data is in first channel of the first PCM block
          dpl->bytes_per_frame = BCMPH_PCM_CHANNEL_WIDTH;
       }
-      else {
-         bcm_assert(BCMPH_CODEC_LINEAR16 == codec);
+      else if (BCMPH_CODEC_LINEAR16 == codec) {
          dpl->type_transfer = BCMPH_TRF_M_16_BITS_C_LINEAR16;
          // We need 2 timeslots/channels
-         dpl->bytes_per_frame = 2 * BCMPH_PCM_CHANNEL_WIDTH;
+         // Data is in first channel of the first PCM block and in the first
+         // channel of the second PCM block
+         dpl->bytes_per_frame = ((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 4;
+      }
+      else {
+         bcm_assert((BCMPH_CODEC_ALAW16 == codec) || (BCMPH_CODEC_ULAW16 == codec));
+         dpl->type_transfer = BCMPH_TRF_M_16_BITS_C_xLAW16;
+         // We need 2 timeslots/channel but we get/set only half of the
+         // bytes of each channel
+         // Data is in first channel of the first PCM block and in the first
+         // channel of the second PCM block
+         dpl->bytes_per_frame = ((BCMPH_PCM_CHANNEL_WIDTH + 1) / 2) * 2;
       }
    }
 #ifdef BCMPH_TEST_PCM
+   dpl->offset_first_block_pcm_channel = 0;
    dpl->type_transfer = BCMPH_TRF_TEST_PCM;
    dpl->bytes_per_frame = BCMPH_PCM_MAX_CHANNELS * BCMPH_PCM_CHANNEL_WIDTH;
 #endif // BCMPH_TEST_PCM
@@ -285,7 +309,10 @@ static int bcm_drv_set_line_codec(bcm_drv_t *t, size_t line,
       }
 
       if ((BCMPH_CODEC_ALAW != codec) && (BCMPH_CODEC_ULAW != codec)
-              && (BCMPH_CODEC_LINEAR != codec) && (BCMPH_CODEC_LINEAR16 != codec)) {
+          && (BCMPH_CODEC_LINEAR != codec)
+          && (BCMPH_CODEC_LINEAR16 != codec)
+          && (BCMPH_CODEC_ALAW16 != codec)
+          && (BCMPH_CODEC_ULAW16 != codec)) {
          bcm_pr_err("Invalid codec %d\n", (int)(codec));
          ret = -EINVAL;
          break;
@@ -576,7 +603,8 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
          // can't have enough data or enough free space to write or
          // read a DMA frame
          dpl->bytes_per_frame = 0x7FFFFFFF;
-         dpl->offset_first_pcm_channel = 0;
+         dpl->offset_first_block_pcm_channel = 0;
+         dpl->offset_second_block_pcm_channel = 0;
          dpl->type_transfer = BCMPH_TRF_NO_OP;
          if (i < ARRAY_SIZE(line_params)) {
             if (i < ARRAY_SIZE(params->line_params)) {
@@ -612,6 +640,7 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
             disabled_lines += 1;
          }
          else {
+            bcm_drv_phone_line_t *dpl = &(t->phone_lines[i]);
             enabled_lines += 1;
 
             // Check that line exists
@@ -625,7 +654,9 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
             if ((BCMPH_CODEC_ALAW != line_params[i].codec)
                 && (BCMPH_CODEC_ULAW != line_params[i].codec)
                 && (BCMPH_CODEC_LINEAR != line_params[i].codec)
-                && (BCMPH_CODEC_LINEAR16 != line_params[i].codec)) {
+                && (BCMPH_CODEC_LINEAR16 != line_params[i].codec)
+                && (BCMPH_CODEC_ALAW16 != line_params[i].codec)
+                && (BCMPH_CODEC_ULAW16 != line_params[i].codec)) {
                bcm_pr_err("Invalid codec %d for line %lu\n",
                   (int)(line_params[i].codec), (unsigned long)(i));
                ret = -EINVAL;
@@ -653,6 +684,7 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
             if (ret) {
                break;
             }
+            dpl->offset_first_block_pcm_channel = (pcm_channel * BCMPH_PCM_CHANNEL_WIDTH);
             pcm_channel += 1;
             if (!params->pcm_use_16bits_timeslot) {
                if (((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_LINEAR))
@@ -667,17 +699,25 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
                      break;
                   }
                   pcm_channel += 1;
+               }
+               if (((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_ALAW16))
+                    && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_ALAW16)))
+                   || ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_ULAW16))
+                       && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_ULAW16)))
+                   || ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_LINEAR16))
+                       && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_LINEAR16)))) {
+                  __u8 third_timeslot = line_params[i].first_timeslot + (max_timeslots / 2);
+                  ret = bcm_drv_use_ts_and_pcm_channel(i,
+                     timeslot_to_channel, max_timeslots, &(pcm_channels_used),
+                     third_timeslot, pcm_channel);
+                  if (ret) {
+                     break;
+                  }
+                  dpl->offset_second_block_pcm_channel = (pcm_channel * BCMPH_PCM_CHANNEL_WIDTH);
+                  pcm_channel += 1;
                   if ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_LINEAR16))
                       && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_LINEAR16))) {
-                     __u8 third_timeslot = line_params[i].first_timeslot + (max_timeslots / 2);
                      __u8 fourth_timeslot = third_timeslot + 1;
-                     ret = bcm_drv_use_ts_and_pcm_channel(i,
-                        timeslot_to_channel, max_timeslots, &(pcm_channels_used),
-                        third_timeslot, pcm_channel);
-                     if (ret) {
-                        break;
-                     }
-                     pcm_channel += 1;
                      ret = bcm_drv_use_ts_and_pcm_channel(i,
                         timeslot_to_channel, max_timeslots, &(pcm_channels_used),
                         fourth_timeslot, pcm_channel);
@@ -692,8 +732,12 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
                // first_timeslot + 1, is implicitly read by the same channel as line_params[i].timeslot[0]
                bcm_assert(timeslot_to_channel[line_params[i].first_timeslot + 1] >= BCMPH_PCM_MAX_CHANNELS);
                timeslot_to_channel[line_params[i].first_timeslot + 1] = timeslot_to_channel[line_params[i].first_timeslot];
-               if ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_LINEAR16))
-                   && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_LINEAR16))) {
+               if (((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_ALAW16))
+                    && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_ALAW16)))
+                   || ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_ULAW16))
+                       && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_ULAW16)))
+                   || ((bcm_phone_mgr_line_supports_codec(&(t->phone_mgr), i, BCMPH_CODEC_LINEAR16))
+                       && (bcm_phone_mgr_line_can_switch_to_codec(&(t->phone_mgr), i, line_params[i].codec, BCMPH_CODEC_LINEAR16)))) {
                   __u8 third_timeslot = line_params[i].first_timeslot + (max_timeslots / 2);
                   ret = bcm_drv_use_ts_and_pcm_channel(i,
                      timeslot_to_channel, max_timeslots, &(pcm_channels_used),
@@ -701,6 +745,7 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
                   if (ret) {
                      break;
                   }
+                  dpl->offset_second_block_pcm_channel = (pcm_channel * BCMPH_PCM_CHANNEL_WIDTH);
                   pcm_channel += 1;
                   bcm_assert(timeslot_to_channel[third_timeslot + 1] >= BCMPH_PCM_MAX_CHANNELS);
                   timeslot_to_channel[third_timeslot + 1] = timeslot_to_channel[third_timeslot];
@@ -757,8 +802,8 @@ static int bcm_drv_start(bcm_drv_t *t, const bcm_phone_cfg_params_t *params)
                if (!line_params[t->default_line].enable) {
                   t->default_line = i;
                }
+               bcm_assert((timeslot_to_channel[line_params[i].first_timeslot] * BCMPH_PCM_CHANNEL_WIDTH) == dpl->offset_first_block_pcm_channel);
                bcm_drv_set_bytes_per_frame(t, dpl, params->pcm_use_16bits_timeslot, line_params[i].codec);
-               dpl->offset_first_pcm_channel = timeslot_to_channel[line_params[i].first_timeslot] * BCMPH_PCM_CHANNEL_WIDTH;
                size = len_rx_ring_buffer;
                t->mm_rbs_location.rbs[i].rx_buffer_offset = offset;
                t->mm_rbs_location.rbs[i].rx_buffer_size = size;

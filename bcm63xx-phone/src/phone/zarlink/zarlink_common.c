@@ -206,7 +206,15 @@ static VpOptionCodecType zarlink_get_codec_type(bcm_phone_codec_t codec)
          break;
       }
       case BCMPH_CODEC_LINEAR16: {
-         codec_type = VP_OPTION_WIDEBAND;
+         codec_type = VP_OPTION_LINEAR_WIDEBAND;
+         break;
+      }
+      case BCMPH_CODEC_ALAW16: {
+         codec_type = VP_OPTION_ALAW_WIDEBAND;
+         break;
+      }
+      case BCMPH_CODEC_ULAW16: {
+         codec_type = VP_OPTION_MLAW_WIDEBAND;
          break;
       }
       default: {
