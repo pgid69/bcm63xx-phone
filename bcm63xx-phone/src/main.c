@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015
- * Gilles Mazoyer <mazoyer.gilles@gilande.com>
+ * Gilles Mazoyer <mazoyer.gilles@omega.ovh>
  *
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
@@ -1626,7 +1626,7 @@ module_init(bcm_drv_init);
 module_exit(bcm_drv_exit);
 
 MODULE_DESCRIPTION("bcm63xx-phone driver");
-MODULE_AUTHOR("Gilles Mazoyer <mazoyer.gilles@gilande.com>");
+MODULE_AUTHOR("Gilles Mazoyer <mazoyer.gilles@omega.ovh>");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(VERSION);
 #endif // __KERNEL__
