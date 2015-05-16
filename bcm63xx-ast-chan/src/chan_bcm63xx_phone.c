@@ -205,7 +205,7 @@ typedef struct bcmph_pvt
       /* Frame used when calling ast_queue_frame(), with its buffer */
       struct ast_frame frame_to_queue;
       __u8 buf_fr_to_queue[BCMPH_MAX_BUF];
-      /* Frame used in bcmp_chan_read(), with its buffer */
+      /* Frame used in bcmph_chan_read(), with its buffer */
       struct ast_frame frame;
       __u8 buf_fr[BCMPH_MAX_BUF + AST_FRIENDLY_OFFSET];
       /*
@@ -585,14 +585,13 @@ static void bcmph_new(bcmph_pvt_t *pvt, int state,
 static int bcmph_setup(bcmph_pvt_t *pvt)
 {
    int ret = 0;
-   const struct ast_format *format;
 
    bcm_pr_debug("bcmph_setup()\n");
 
    bcm_assert(NULL != pvt->owner);
 
    do { /* Empty loop */
-      format = ast_channel_rawreadformat(pvt->owner);
+      const struct ast_format *format = ast_channel_rawreadformat(pvt->owner);
       if ((NULL == format)
           || (!ast_format_cap_iscompatible(pvt->channel->config.line_cfgs[pvt->index_line].capabilities, format))) {
          ast_log(AST_LOG_WARNING, "Can't do format '%s'\n", ast_getformatname(ast_channel_rawreadformat(pvt->owner)));
