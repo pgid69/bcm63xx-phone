@@ -9,10 +9,11 @@ Now it supports :
 - and, in theory, the Huawei HW556, that has also two FXS lines managed by a Legerity/Zarlink/Microsemi Le88266 this time. Once again the Broadcom 6358 SoC interfaces with Le88266 using PCM and SPI buses.<BR>
 BUT as I don't have a Huawei HW556, I never made tests with this router (only with my HW553).
 
-There are three subdirectories : 
+There are three subdirectories :
 
 - bcm63xx-phone : the kernel driver. It uses the Microsemi Voice Path API Lite SDK, so adding support for other Microsemi devices should be quite easy. I think that support for routers based on Broadcom 6368 SoC should be quite easy too but of course it needs testing.<BR>
-There are mainly two limitations of the kernel driver :
+There are mainly three limitations of the kernel driver :
+ * no handling of caller id (this is a limitation of Microsemi Voice Path API Lite SDK)
  * no detection of DTMF digits (and neither the Le88221 nor the Le88266 can do it in hardware). As Asterisk can do it, i just add an option in the Asterisk channel bcm63xx-ast-chan to enable or disable DTMF detection.
  * no echo cancellation. Maybe Asterisk can do it, but i never take time to try to configure Asterisk.<BR>
 
