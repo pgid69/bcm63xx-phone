@@ -43,7 +43,9 @@ dialing_timeout = 3000
 detect_dtmf = dialing
 ; This sets the Caller Id string and number for calls originating on
 ; this line.
-callerid = "line1" <00-00-00-01>
+caller_id = "line1" <00-00-00-01>
+; Default Music on Hold class to use when this channel is placed on hold
+moh_interpret = default
 
 ; Specific parameters of the second line
 [line2]
@@ -69,5 +71,7 @@ dialing_timeout = 3000
 detect_dtmf = dialing
 ; This sets the Caller Id string and number for calls originating on
 ; this line.
-callerid = "line2" <00-00-00-02>
+caller_id = "line2" <00-00-00-02>
+; Default Music on Hold class to use when this channel is placed on hold
+moh_interpret = default
 

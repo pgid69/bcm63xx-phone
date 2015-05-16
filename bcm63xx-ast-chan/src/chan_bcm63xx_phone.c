@@ -27,7 +27,7 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #include <asterisk/callerid.h>
 #include <asterisk/causes.h>
 #ifdef BCMPH_NOHW
-#include "asterisk/cli.h"
+#include <asterisk/cli.h>
 #endif /* BCMPH_NOHW */
 #include <asterisk/config.h>
 #include <asterisk/dsp.h>
@@ -64,7 +64,7 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
  par l'appel de bcmph_new() dans un etat autre que AST_STATE_DOWN ce qui
  appelle ast_pbx_start() pour la creation d'un thread pour le channel.
  Lorsque la communication est etablie avec le numero appelle, Asterisk
- appelle la fonction answer() est appelle qui appelle bcmph_setup()
+ appelle la fonction answer() qui appelle bcmph_setup()
  bcmph_setup() fait passer le channel a l'etat AST_STATE_UP,
  et passe la ligne en mode conversation.
  En fin de conversation hangup() est appelle
@@ -74,11 +74,6 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
  Lorsque l'utilisateur decroche appel de bcmph_setup() et la conversation
  peut alors s'etablir
  En fin de conversation hangup() est appelle
-*/
-
-/*
- TODO
- - Revoir les codes retours
 */
 
 #undef bcm_assert
@@ -122,6 +117,7 @@ typedef struct {
    char context[AST_MAX_EXTENSION];
    char cid_name[AST_MAX_EXTENSION];
    char cid_num[AST_MAX_EXTENSION];
+   char moh_interpret[MAX_MUSICCLASS];
 } bcmph_line_config_t;
 
 typedef struct {
@@ -1964,7 +1960,8 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
             break;
          }
          case AST_CONTROL_HOLD: {
-            ast_moh_start(ast, data, NULL);
+            const bcmph_line_config_t *line_cfg = &(pvt->channel->config.line_cfgs[pvt->index_line]);
+            ast_moh_start(ast, data, ('\0' != line_cfg->moh_interpret[0]) ? line_cfg->moh_interpret : NULL);
             ret = 0;
             break;
          }
@@ -3094,10 +3091,13 @@ static int load_module(void)
                   break;
                }
             }
-            else if (!strcasecmp(v->name, "callerid")) {
+            else if (!strcasecmp(v->name, "caller_id")) {
                ast_callerid_split(v->value, line_cfg->cid_name,
                   ARRAY_LEN(line_cfg->cid_name),
                   line_cfg->cid_num, ARRAY_LEN(line_cfg->cid_num));
+            }
+            else if (!strcasecmp(v->name, "moh_interpret")) {
+               ast_copy_string(line_cfg->moh_interpret, v->value, ARRAY_LEN(line_cfg->moh_interpret));
             }
             else {
                ast_log(AST_LOG_WARNING, "Unknown variable '%s' in section '%s' of config file '%s'\n",
