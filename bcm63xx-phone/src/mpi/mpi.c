@@ -913,7 +913,15 @@ fail_master:
    t->wait_completion_with_irq = params->wait_completion_with_irq;
 
    if (bcm_mpi_dev_data.ref_count <= 0) {
-      ret = platform_driver_register(&(bcm63xx_spi_driver));
+      struct device_driver *spi_driver = driver_find(bcm63xx_spi_driver.driver.name, &platform_bus_type);
+      if (NULL != spi_driver) {
+         bcm_pr_err("Error: Driver '%s' is already registered, aborting...\n",
+            bcm63xx_spi_driver.driver.name);
+         ret = -EBUSY;
+      }
+      else {
+         ret = platform_driver_register(&(bcm63xx_spi_driver));
+      }
       bcm_assert(((ret) && (0 == bcm_mpi_dev_data.ref_count))
          || ((!ret) && (1 == bcm_mpi_dev_data.ref_count)));
    }
