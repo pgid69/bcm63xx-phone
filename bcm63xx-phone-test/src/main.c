@@ -2106,19 +2106,32 @@ int main(int argc, char *argv[])
       }
    }
 
-   for (i = 0; (i < ((int)(ARRAY_SIZE(prm_lines)))); i += 1) {
-      if (prm_lines[i].enable) {
-         break;
-      }
-   }
-   if (i >= ((int)(ARRAY_SIZE(prm_lines)))) {
-      fprintf(stderr, "No lines enabled\n");
+   if (!prm_lines[prm_default_line].enable) {
+      fprintf(stderr, "Default line %lu is disabled\n", (unsigned long)(prm_default_line));
+      prm_default_line = 0;
       pause = 1;
+   }
+   else {
+      for (i = 0; (i < ((int)(ARRAY_SIZE(prm_lines)))); i += 1) {
+         if (prm_lines[i].enable) {
+            break;
+         }
+         else if (i == prm_default_line) {
+            i += 1;
+         }
+      }
+      if (i >= ((int)(ARRAY_SIZE(prm_lines)))) {
+         fprintf(stderr, "No lines enabled\n");
+         pause = 1;
+      }
    }
 
    if (pause) {
       fprintf(stdout, "Press a key to continue\n");
       fgetc(stdin);
+      if (!prm_lines[prm_default_line].enable) {
+         return (-1);
+      }
    }
 
    if (NULL != which_test) {
