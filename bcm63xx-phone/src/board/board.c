@@ -328,13 +328,17 @@ static zarlink_device_parameters_t hw553_le88221_dev_params = {
    }
 };
 
+/*
+ On HW553, FXS port labelled phone 1 is the second line of le88221 (index 1),
+ and FXS port labelled phone 2 is the first line of le88221 (index 0)
+*/
 static zarlink_line_parameters_t hw553_le88221_line0_params = {
-   .id = 0,
+   .id = 1,
    .type = VP_TERM_FXS_GENERIC,
 };
 
 static zarlink_line_parameters_t hw553_le88221_line1_params = {
-   .id = 1,
+   .id = 0,
    .type = VP_TERM_FXS_GENERIC,
 };
 
