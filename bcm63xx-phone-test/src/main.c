@@ -2116,7 +2116,7 @@ int main(int argc, char *argv[])
          if (prm_lines[i].enable) {
             break;
          }
-         else if (i == prm_default_line) {
+         else if (i == ((int)(prm_default_line))) {
             i += 1;
          }
       }
