@@ -112,7 +112,7 @@ typedef struct {
    char hour[3];
    char min[3];
    size_t num_len;
-   char number[11];
+   char number[20];
    size_t name_len;
    char name[80];
 } bcm_phone_cid_t;
