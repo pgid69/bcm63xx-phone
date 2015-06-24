@@ -18,6 +18,7 @@
 			</Target>
 		</Build>
 		<Compiler>
+			<Add option="-Wextra" />
 			<Add option="-Wall" />
 			<Add option="-fPIC -pthread" />
 			<Add option="-DBCMPH_NOHW" />

@@ -7,7 +7,7 @@
 [interfaces]
 ;
 ; Number of FXS lines
-; Valid value must be in the range [1 ,4]
+; Valid value must be in the range [1, 2]
 lines = 2
 ;
 ; Country : valid value is one of :
@@ -33,8 +33,8 @@ context = bcmph-line-1
 ; If 0, starts PBX immediately when phone goes off hook
 monitor_dialing = 1
 ; If monitor_dialing = 1, if a digit is dialed, the channel waits the
-; following timeout before searching if all the digits dialed form a
-; valid extension
+; following timeout (in milliseconds) before searching if all the digits
+; dialed form a valid extension
 dialing_timeout = 3000
 ; Activate DTMF detection. Valid values are one of :
 ; never, dialing, connected, always
@@ -61,8 +61,8 @@ context = bcmph-line-2
 ; If 0, starts PBX immediately when phone goes off hook
 monitor_dialing = 1
 ; If monitor_dialing = 1, if a digit is dialed, the channel waits the
-; following timeout before searching if all the digits dialed form a
-; valid extension
+; following timeout (in milliseconds) before searching if all the digits
+; dialed form a valid extension
 dialing_timeout = 3000
 ; Activate DTMF detection. Valid values are one of :
 ; never, dialing, connected, always
