@@ -19,13 +19,15 @@ include $(INCLUDE_DIR)/package.mk
 
 define KernelPackage/bcm63xx-phone
   SUBMENU:=Voice over IP
-  DEPENDS:=@TARGET_brcm63xx
-  TITLE:=Kernel driver for Le88221 for Broadcom 6358
+  DEPENDS:=@(TARGET_brcm63xx&&!PACKAGE_kmod-bcm63xx-spi)
+  TITLE:=Kernel driver for Le88221 and Le88266 for Broadcom 6358
+  KCONFIG:= \
+	CONFIG_SPI_BCM63XX=n
   FILES:=$(PKG_BUILD_DIR)/bcm63xx-phone.ko
 endef
 
 define KernelPackage/bcm63xx-phone/description
-  Kernel driver for Le88221 for Broadcom 6358 (conflicts with module spi-bcm63xx).
+  Kernel driver for Le88221 and Le88266 for Broadcom 6358 (conflicts with module spi-bcm63xx).
 endef
 
 define Build/Prepare

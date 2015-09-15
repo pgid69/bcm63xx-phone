@@ -1926,7 +1926,7 @@ static int decode_tone(const char *value, bcm_phone_line_tone_t *tone)
 
 static inline int value_is_bool(const char *value)
 {
-   if (('\0' != value[1]) || (('0' != value[0]) && ('1' != value[0]))) {
+   if ((('0' != value[0]) && ('1' != value[0])) || ('\0' != value[1])) {
       return (0);
    }
    else {
