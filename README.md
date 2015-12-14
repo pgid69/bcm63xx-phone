@@ -22,9 +22,34 @@ You must rmmod bcm63xx-spi if you want to insmod bcm63xx-phone.
 
 - bcm63xx-phone-test : a basic test program for the kernel driver.
 
-- bcm63xx-ast-chan : an Asterisk 11 channel, to connect Asterisk with the kernel driver.
+- bcm63xx-ast-chan : an Asterisk channel, to connect Asterisk with the kernel driver. It can be compiled for Asterisk version 1.8, 11 and 13.
 
 
 ## Compilation ##
 
 Compilation is simple : just define the directory containing the three subdirectories as custom-feed in OpenWrt (http://wiki.openwrt.org/doc/devel/feeds) and compile the three packages as any other OpenWrt packages.
+
+## Asterisk configuration ##
+
+Configuration is shared between two files
+
+The first is /etc/asterisk/bcm3xx_phone.conf.
+It eventually needs to be adpated to your specific needs.
+By default only line 1 is enabled.
+
+The second is /etc/asterisk/extensions.conf.
+
+Here's an example of lines added to file extensions.conf.
+Section [sip-provider-in] is for calls coming from outside.
+Here calls should be answered by phone connected to line 1 of modem.
+
+Section [bcmph-line-1] (name of the section is configured in bcm63xx_phone.conf, parameter context) is for calls originating from phone connected to line 1 of modem.
+Here calls are forwarded to sip-provider.
+
+[sip-provider-in]
+exten => s,1,Dial(Bcm63xxPhone/1,120,t)
+  same => n,Hangup(16)
+
+[bcmph-line-1]
+exten => _X.,1,Dial(SIP/sip-provider/${EXTEN})
+  same => n,Hangup(16)
