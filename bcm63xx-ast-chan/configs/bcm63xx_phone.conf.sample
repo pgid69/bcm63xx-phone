@@ -22,24 +22,41 @@ country = france
 ; Specific parameters of the first line
 [line1]
 enable = 1
-; Codecs that can be used for this line
-; this is a list of comma separated values
-; Valid values are : alaw, ulaw, slin and slin16
-codecs = alaw, ulaw, slin
+; Codecs that can be used for this line.
+; This is a list of comma separated values.
+; Valid values are : ulaw, alaw, slin and slin16.
+; slin16 is not handled by all devices.
+; Order is important : the preferred codec must be the first, followed by the
+; second preferred...
+; If parameter detect_dtmf is not never, at least codec ulaw, alaw or slin is
+; required.
+; If parameter detect_dtmf is connected or always, codec slin16 can't be used.
+codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
 context = bcmph-line-1
 ; If 1, the channel reads digits then start PBX with
 ; the dialed extension
 ; If 0, starts PBX immediately when phone goes off hook
 monitor_dialing = 1
-; If monitor_dialing = 1, if a digit is dialed, the channel waits the
-; following timeout (in milliseconds) before searching if all the digits
-; dialed form a valid extension
+; If monitor_dialing = 1, character that trigger the search for a valid
+; extension immediately (instead of waiting dialing_timeout).
+; When searching for the extension the character is not included.
+; If no extension is found the channel adds the character and waits for
+; another digit
+search_extension_trigger = #
+; If monitor_dialing = 1, if no digit is dialed, the channel waits the
+; following timeout (in milliseconds) before searching the default
+; extension 's'
+dialing_timeout_1st_digit = 5000
+; If monitor_dialing = 1, if a digit is dialed and it's not the value of
+; the search_extension_trigger parameter, the channel waits the following
+; timeout (in milliseconds) before searching if all the digits dialed form a
+; valid extension. If no extension is found, the channel waits for another digit.
 dialing_timeout = 3000
 ; Activate DTMF detection. Valid values are one of :
 ; never, dialing, connected, always
-; DTMF detection is possible with codecs alaw, ulaw and slin,
-; but not slin16
+; DTMF detection is possible with codecs ulaw, alaw and slin,
+; but not slin16 (see parameter codecs)
 detect_dtmf = dialing
 ; This sets the Caller Id string and number for calls originating on
 ; this line.
@@ -50,24 +67,41 @@ moh_interpret = default
 ; Specific parameters of the second line
 [line2]
 enable = 0
-; Codecs that can be used for this line
-; this is a list of comma separated values
-; Valid values are : alaw, ulaw, slin and slin16
-codecs = alaw, ulaw, slin
+; Codecs that can be used for this line.
+; This is a list of comma separated values.
+; Valid values are : ulaw, alaw, slin and slin16.
+; slin16 is not handled by all devices.
+; Order is important : the preferred codec must be the first, followed by the
+; second preferred...
+; If parameter detect_dtmf is not never, at least codec ulaw, alaw or slin is
+; required.
+; If parameter detect_dtmf is connected or always, codec slin16 can't be used.
+codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
 context = bcmph-line-2
 ; If 1, the channel reads digits then start PBX with
 ; the dialed extension
 ; If 0, starts PBX immediately when phone goes off hook
 monitor_dialing = 1
-; If monitor_dialing = 1, if a digit is dialed, the channel waits the
-; following timeout (in milliseconds) before searching if all the digits
-; dialed form a valid extension
+; If monitor_dialing = 1, character that trigger the search for a valid
+; extension immediately (instead of waiting dialing_timeout).
+; When searching for the extension the character is not included.
+; If no extension is found the channel adds the character and waits for
+; another digit
+search_extension_trigger = #
+; If monitor_dialing = 1, if no digit is dialed, the channel waits the
+; following timeout (in milliseconds) before searching the default
+; extension 's'
+dialing_timeout_1st_digit = 5000
+; If monitor_dialing = 1, if a digit is dialed and it's not the value of
+; the search_extension_trigger parameter, the channel waits the following
+; timeout (in milliseconds) before searching if all the digits dialed form a
+; valid extension. If no extension is found, the channel waits for another digit.
 dialing_timeout = 3000
 ; Activate DTMF detection. Valid values are one of :
 ; never, dialing, connected, always
 ; DTMF detection is possible with codecs alaw, ulaw and slin,
-; but not slin16
+; but not slin16 (see parameter codecs)
 detect_dtmf = dialing
 ; This sets the Caller Id string and number for calls originating on
 ; this line.

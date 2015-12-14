@@ -9,6 +9,10 @@
 /* Documentation about API of Asterisk 1.11 is available
    http://doxygen.asterisk.org/trunk/ */
 
+#if ((!defined AST_VERSION) || ((18 != AST_VERSION) && (110 != AST_VERSION) && (130 != AST_VERSION)))
+#error "Preprocessor define AST_VERSION not defined or not equal to 18, 110 or 130"
+#endif
+
 /* To be included first */
 #include <asterisk.h>
 
@@ -32,7 +36,12 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #endif /* BCMPH_NOHW */
 #include <asterisk/config.h>
 #include <asterisk/dsp.h>
+#if (AST_VERSION > 110)
+#include <asterisk/format_cache.h>
+#endif /* (AST_VERSION > 110) */
+#if (AST_VERSION >= 110)
 #include <asterisk/format_cap.h>
+#endif /* (AST_VERSION >= 110) */
 #include <asterisk/frame.h>
 #include <asterisk/linkedlists.h>
 #include <asterisk/lock.h>
@@ -43,6 +52,499 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #include <asterisk/strings.h>
 #include <asterisk/utils.h>
 
+#if !defined(__cplusplus) && !defined(c_plusplus)
+typedef int bool;
+
+#define false 0
+#define true 1
+#endif /* __cplusplus */
+
+#if (AST_VERSION < 110)
+typedef format_t bcmph_ast_format;
+#else /* (AST_VERSION >= 110) */
+typedef struct ast_format bcmph_ast_format;
+#endif /* (AST_VERSION >= 110) */
+
+#if (AST_VERSION < 110)
+typedef format_t bcmph_ast_format_cap;
+#else /* (AST_VERSION >= 110) */
+typedef struct ast_format_cap bcmph_ast_format_cap;
+#endif /* (AST_VERSION >= 110) */
+
+#if (AST_VERSION <= 110)
+/*
+ * If a new format is added, functions bcmph_init_cache_ast_format and
+ * bcmph_ast_format_cap_get_best_by_type should be updated
+ */
+static bcmph_ast_format *ast_format_ulaw;
+static bcmph_ast_format *ast_format_alaw;
+static bcmph_ast_format *ast_format_slin;
+static bcmph_ast_format *ast_format_slin16;
+#endif /* (AST_VERSION <= 110) */
+
+static void bcmph_init_cache_ast_format(void)
+{
+#if (AST_VERSION < 110)
+   static format_t format_ulaw = AST_FORMAT_ULAW;
+   static format_t format_alaw = AST_FORMAT_ALAW;
+   static format_t format_slin = AST_FORMAT_SLINEAR;
+   static format_t format_slin16 = AST_FORMAT_SLINEAR16;
+   ast_format_ulaw = &(format_ulaw);
+   ast_format_alaw = &(format_alaw);
+   ast_format_slin = &(format_slin);
+   ast_format_slin16 = &(format_slin16);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   static struct ast_format format_ulaw;
+   static struct ast_format format_alaw;
+   static struct ast_format format_slin;
+   static struct ast_format format_slin16;
+   ast_format_ulaw = ast_getformatbyname("ulaw", &(format_ulaw));
+   bcm_assert(NULL != ast_format_ulaw);
+   ast_format_alaw = ast_getformatbyname("alaw", &(format_alaw));
+   bcm_assert(NULL != ast_format_alaw);
+   ast_format_slin = ast_getformatbyname("slin", &(format_slin));
+   bcm_assert(NULL != ast_format_slin);
+   ast_format_slin16 = ast_getformatbyname("slin16", &(format_slin16));
+   bcm_assert(NULL != ast_format_slin16);
+#endif /* (110 == AST_VERSION) */
+}
+
+static inline void bcmph_ao2_ref_format(bcmph_ast_format *format, int count)
+{
+   bcm_assert((NULL != format) && ((1 == count) || (-1 == count)));
+#if (AST_VERSION > 110)
+   ao2_ref(format, count);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline const char *bcmph_ast_format_get_name(
+   const bcmph_ast_format *format)
+{
+   bcm_assert(NULL != format);
+#if (AST_VERSION < 110)
+   return (ast_getformatname(*format));
+#endif /* (110 == AST_VERSION) */
+#if (110 == AST_VERSION)
+   return (ast_getformatname(format));
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   return (ast_format_get_name(format));
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline int bcmph_ast_formats_are_equal(
+   const bcmph_ast_format *format1, const bcmph_ast_format *format2)
+{
+   bcm_assert((NULL != format1) && (NULL != format2));
+#if (AST_VERSION < 110)
+   return (*format1 == *format2);
+#else /* (AST_VERSION >= 110) */
+   return (AST_FORMAT_CMP_EQUAL == ast_format_cmp(format1, format2));
+#endif /* (AST_VERSION > =110) */
+}
+
+static inline bcmph_ast_format_cap *bcmph_ast_format_cap_alloc(void)
+{
+#if (AST_VERSION < 110)
+   bcm_assert(false);
+   return (NULL);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   return (ast_format_cap_alloc());
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   return (ast_format_cap_alloc(AST_FORMAT_CAP_FLAG_DEFAULT));
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_format_cap_destroy(bcmph_ast_format_cap *cap)
+{
+   bcm_assert(NULL != cap);
+#if (AST_VERSION < 110)
+   bcm_assert(false);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_cap_destroy(cap);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ao2_ref(cap, -1);
+#endif /* (AST_VERSION > 110) */
+}
+
+#if (AST_VERSION <= 110)
+enum ast_media_type {
+   AST_MEDIA_TYPE_UNKNOWN,
+   AST_MEDIA_TYPE_AUDIO,
+};
+#endif /* (AST_VERSION <= 110) */
+
+static inline void bcmph_ast_format_cap_remove_by_type(
+   bcmph_ast_format_cap *cap, enum ast_media_type type)
+{
+   bcm_assert((NULL != cap) &&
+      ((AST_MEDIA_TYPE_AUDIO == type) || (AST_MEDIA_TYPE_UNKNOWN == type)));
+   if (AST_MEDIA_TYPE_AUDIO == type) {
+#if (AST_VERSION < 110)
+      *cap &= (~(AST_FORMAT_AUDIO_MASK));
+#endif /* (110 == AST_VERSION) */
+#if (110 == AST_VERSION)
+      ast_format_cap_remove_bytype(cap, AST_FORMAT_TYPE_AUDIO);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+      ast_format_cap_remove_by_type(cap, type);
+#endif /* (AST_VERSION > 110) */
+   }
+   else if (AST_MEDIA_TYPE_UNKNOWN == type) {
+#if (AST_VERSION < 110)
+      *cap = 0;
+#endif /* (110 == AST_VERSION) */
+#if (110 == AST_VERSION)
+      ast_format_cap_remove_all(cap);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+      ast_format_cap_remove_by_type(cap, type);
+#endif /* (AST_VERSION > 110) */
+   }
+   else {
+      bcm_assert(false);
+   }
+}
+
+static inline void bcmph_ast_format_cap_append_format(
+   bcmph_ast_format_cap *cap, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != cap) && (NULL != format));
+#if (AST_VERSION < 110)
+   *cap |= *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_cap_add(cap, format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_format_cap_append(cap, format, 0);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline int bcmph_ast_format_cap_iscompatible_cap(
+   const bcmph_ast_format_cap *cap1, const bcmph_ast_format_cap *cap2)
+{
+   bcm_assert((NULL != cap1) && (NULL != cap2));
+#if (AST_VERSION < 110)
+   return (*cap1 & *cap2);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   return (ast_format_cap_has_joint(cap1, cap2));
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   return (ast_format_cap_iscompatible(cap1, cap2));
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline int bcmph_ast_format_cap_iscompatible_format(
+   const bcmph_ast_format_cap *cap, const bcmph_ast_format *format)
+{
+   bcm_assert((NULL != cap) && (NULL != format));
+#if (AST_VERSION < 110)
+   return (*cap & *format);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   return (ast_format_cap_iscompatible(cap, format));
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   return (AST_FORMAT_CMP_EQUAL == ast_format_cap_iscompatible_format(cap, format));
+#endif /* (AST_VERSION > 110) */
+}
+
+/* The format returned (if any) must be released with bcmph_ao2_ref_format(, -1) */
+static inline bcmph_ast_format *bcmph_ast_format_cap_get_preferred(
+   const bcmph_ast_format_cap *cap)
+{
+   bcm_assert(NULL != cap);
+   bcmph_ast_format *ret = NULL;
+   if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_ulaw)) {
+      ret = ast_format_ulaw;
+   }
+   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_alaw)) {
+      ret = ast_format_alaw;
+   }
+   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_slin)) {
+      ret = ast_format_slin;
+   }
+   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_slin16)) {
+      ret = ast_format_slin16;
+   }
+   else {
+      /* Format not handled */
+      bcm_assert(false);
+   }
+   if (NULL != ret) {
+      bcmph_ao2_ref_format(ret, 1);
+   }
+   return (ret);
+}
+
+static const char *bcmph_ast_channel_name(const struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (chan->name);
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_name(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline enum ast_channel_state bcmph_ast_channel_state(const struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (chan->_state);
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_state(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline const char *bcmph_ast_channel_linkedid(const struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (chan->linkedid);
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_linkedid(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline struct ast_party_caller *bcmph_ast_channel_caller(struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (&(chan->caller));
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_caller(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline struct ast_party_connected_line *bcmph_ast_channel_connected(struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (&(chan->connected));
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_connected(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_tech_set(struct ast_channel *chan,
+   const struct ast_channel_tech *chan_tech)
+{
+#if (AST_VERSION < 110)
+   chan->tech = chan_tech;
+#else /* (AST_VERSION >= 110) */
+   ast_channel_tech_set(chan, chan_tech);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void *bcmph_ast_channel_tech_pvt(struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (chan->tech_pvt);
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_tech_pvt(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_tech_pvt_set(
+   struct ast_channel *chan, void *value)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   chan->tech_pvt = value;
+#else /* (AST_VERSION >= 110) */
+   ast_channel_tech_pvt_set(chan, value);
+#endif /* (AST_VERSION >= 110) */
+}
+
+/* Beware : value must not be allocated on the stack */
+static inline void bcmph_ast_channel_nativeformats_set(
+   struct ast_channel *chan, bcmph_ast_format_cap *value)
+{
+   bcm_assert((NULL != chan) && (NULL != value));
+#if (AST_VERSION < 110)
+   chan->nativeformats = *value;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   struct ast_format_cap *tmpcap = ast_channel_nativeformats(chan);
+   if (NULL != tmpcap) {
+      ast_format_cap_remove_all(tmpcap);
+      ast_format_cap_copy(tmpcap, value);
+   }
+   else {
+      ao2_ref(value, 1);
+      ast_channel_nativeformats_set(chan, value);
+   }
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_channel_nativeformats_set(chan, value);
+#endif /* (AST_VERSION > 110) */
+}
+
+static bcmph_ast_format *bcmph_ast_channel_rawreadformat(
+   struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (&(chan->rawreadformat));
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_rawreadformat(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_set_rawreadformat(
+   struct ast_channel *chan, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != chan) && (NULL != format));
+#if (AST_VERSION < 110)
+   chan->rawreadformat = *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_copy(ast_channel_rawreadformat(chan), format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_channel_set_rawreadformat(chan, format);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_channel_set_rawwriteformat(
+   struct ast_channel *chan, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != chan) && (NULL != format));
+#if (AST_VERSION < 110)
+   chan->rawwriteformat = *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_copy(ast_channel_rawwriteformat(chan), format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_channel_set_rawwriteformat(chan, format);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_channel_set_readformat(
+   struct ast_channel *chan, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != chan) && (NULL != format));
+#if (AST_VERSION < 110)
+   chan->readformat = *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_copy(ast_channel_readformat(chan), format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_channel_set_readformat(chan, format);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_channel_set_writeformat(
+   struct ast_channel *chan, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != chan) && (NULL != format));
+#if (AST_VERSION < 110)
+   chan->writeformat = *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_copy(ast_channel_writeformat(chan), format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   ast_channel_set_writeformat(chan, format);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_channel_context_set(
+   struct ast_channel *chan, const char *value)
+{
+   bcm_assert((NULL != chan) && (NULL != value));
+#if (AST_VERSION < 110)
+   ast_copy_string(chan->context, value, sizeof(chan->context));
+#else /* (AST_VERSION >= 110) */
+   ast_channel_context_set(chan, value);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_exten_set(
+   struct ast_channel *chan, const char *value)
+{
+   bcm_assert((NULL != chan) && (NULL != value));
+#if (AST_VERSION < 110)
+   ast_copy_string(chan->exten, value, sizeof(chan->exten));
+#else /* (AST_VERSION >= 110) */
+   ast_channel_exten_set(chan, value);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_language_set(
+   struct ast_channel *chan, const char *value)
+{
+   bcm_assert((NULL != chan) && (NULL != value));
+#if (AST_VERSION < 110)
+   ast_string_field_set(chan, language, value);
+#else /* (AST_VERSION >= 110) */
+   ast_channel_language_set(chan, value);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_rings_set(
+   struct ast_channel *chan, int value)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   chan->rings = value;
+#else /* (AST_VERSION >= 110) */
+   ast_channel_rings_set(chan, value);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline bcmph_ast_format_cap *bcmph_get_chan_tech_cap(
+   struct ast_channel_tech *chan_tech)
+{
+   bcm_assert(NULL != chan_tech);
+#if (AST_VERSION < 110)
+   return (&(chan_tech->capabilities));
+#else /* (AST_VERSION >= 110) */
+   return (chan_tech->capabilities);
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline const bcmph_ast_format *bcmph_ast_get_frame_format(
+   const struct ast_frame *frame)
+{
+   bcm_assert(NULL != frame);
+#if (AST_VERSION < 110)
+   return (&(frame->subclass.codec));
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   return (&(frame->subclass.format));
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   return (frame->subclass.format);
+#endif /* (AST_VERSION > 110) */
+}
+
+static inline void bcmph_ast_set_frame_format(
+   struct ast_frame *frame, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != frame) && (NULL != format));
+#if (AST_VERSION < 110)
+   frame->subclass.codec = *format;
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+   ast_format_copy(&(frame->subclass.format), format);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+   frame->subclass.format = format;
+#endif /* (AST_VERSION > 110) */
+}
+
 #define DEFAULT_CALLER_ID "Unknown"
 
 /* The two following values are from the Asterisk code */
@@ -50,7 +552,6 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #define MIN_TIME_BETWEEN_DTMF 45
 
 /*
-
  D'apres ce que je comprends le deroulement est le suivant
  * Si l'appel est initie par l'utilisateur :
  celui ci decroche le telephone, ce qui est detecte par le moniteur,
@@ -83,13 +584,6 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #define bcm_pr_debug(fmt, args...)
 #endif /* !BCMPH_DEBUG */
 
-#if !defined(__cplusplus) && !defined(c_plusplus)
-typedef int bool;
-
-#define false 0
-#define true 1
-#endif /* __cplusplus */
-
 #define AST_MODULE bcmph_chan_type
 
 #include <bcm63xx_line_state.c>
@@ -117,8 +611,14 @@ static const int bcmph_monitor_idle_timeout = 10000; /* ms */
 
 typedef struct {
    bool enable;
-   struct ast_format_cap *capabilities;
+#if (AST_VERSION < 110)
+   bcmph_ast_format_cap capabilities;
+#else /* (AST_VERSION >= 110) */
+   bcmph_ast_format_cap *capabilities;
+#endif /* (AST_VERSION >= 110) */
    bool monitor_dialing;
+   char search_extension_trigger;
+   int dialing_timeout_1st_digit;
    int dialing_timeout;
    enum {
       DETECT_DTMF_NEVER = 0,
@@ -131,6 +631,15 @@ typedef struct {
    char cid_num[AST_MAX_EXTENSION];
    char moh_interpret[MAX_MUSICCLASS];
 } bcmph_line_config_t;
+
+static inline bcmph_ast_format_cap *bcmph_get_line_cfg_cap(bcmph_line_config_t *line_cfg)
+{
+#if (AST_VERSION < 110)
+   return (&(line_cfg->capabilities));
+#else /* (AST_VERSION >= 110) */
+   return (line_cfg->capabilities);
+#endif /* (AST_VERSION >= 110) */
+}
 
 typedef struct {
    const char *language;
@@ -224,7 +733,7 @@ typedef struct bcmph_pvt
    /* Index of the line in array channel->config.line_cfgs */
    size_t index_line;
    /* Configuration of the line */
-   const bcmph_line_config_t *line_cfg;
+   bcmph_line_config_t *line_cfg;
 
    /*
     Asterisk channel linked to this line :
@@ -290,7 +799,7 @@ typedef struct bcmph_pvt
       */
       struct timeval tv_last_digit;
       /* Last output format */
-      struct ast_format current_format;
+      bcmph_ast_format *current_format;
       /* Size of sample */
       size_t bytes_per_sample;
       /* Size of frames (in bytes) read from the driver and sent to Asterisk */
@@ -371,63 +880,6 @@ typedef struct bcmph_chan
 #endif /* BCMPH_DEBUG */
    } mmap;
 } bcmph_chan_t;
-
-/*
- Compare parameter version with Asterisk version returned by
- ast_get_version_num().
- version must respects same format as the value returned by
- ast_get_version_num().
- Returns :
- - a negative value if version < Asterisk version
- - 0 if version == Asterisk version
- - a positive value if version > Asterisk version
-*/
-static int bcmph_cmp_with_ast_version(const char *version)
-{
-   int ret;
-   const char *ast_version = ast_get_version_num();
-   size_t len_ast;
-   size_t len;
-
-   bcm_assert((NULL != version) && (NULL != ast_version));
-   while (*version == '0') {
-      version += 1;
-   }
-   while (*ast_version == '0') {
-      ast_version += 1;
-   }
-   len = strlen(version);
-   len_ast = strlen(ast_version);
-
-   if (len < len_ast) {
-      bcm_pr_debug("'%s' is less than Asterisk version ('%s')\n",
-         version, ast_version);
-      ret = -1;
-   }
-   else if (len > len_ast) {
-      bcm_pr_debug("'%s' is greater than Asterisk version ('%s')\n",
-         version, ast_version);
-      ret = 1;
-   }
-   else {
-      ret = strcmp(version, ast_version);
-#ifdef BCMPH_DEBUG
-      if (ret < 0) {
-         bcm_pr_debug("'%s' is less than Asterisk version ('%s')\n",
-            version, ast_version);
-      }
-      else if (ret > 0) {
-         bcm_pr_debug("'%s' is greater than Asterisk version ('%s')\n",
-            version, ast_version);
-      }
-      else {
-         bcm_pr_debug("'%s' is equal to Asterisk version ('%s')\n",
-            version, ast_version);
-      }
-#endif
-   }
-   return (ret);
-}
 
 static int bcmph_do_ioctl(const bcmph_chan_t *t, unsigned long request,
    unsigned long arg, bool retry)
@@ -535,46 +987,50 @@ static inline int bcmph_stop_pcm(const bcmph_chan_t *t)
 
 /* Must be called with pvt->owner locked */
 static int bcmph_set_line_codec(bcmph_pvt_t *pvt,
-   const struct ast_format *format,
+   const bcmph_ast_format *format,
    bcm_phone_line_mode_t mode, bcm_phone_line_tone_t tone)
 {
    int ret;
    bcm_phone_set_line_codec_t set_line_codec;
    size_t bytes_per_sample = 1;
    size_t frame_size_read = (BCMPH_MAX_BUF / 2);
+   bcmph_ast_format *new_format = NULL;
 
-   bcm_assert((NULL != format) && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0)));
+   bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
+      && (NULL != format));
 
    memset(&(set_line_codec), 0, sizeof(set_line_codec));
    set_line_codec.line = pvt->index_line;
-   switch (format->id) {
-      case AST_FORMAT_ALAW:
-         set_line_codec.codec = BCMPH_CODEC_ALAW;
-         bytes_per_sample = 1;
-         frame_size_read = (BCMPH_MAX_BUF / 2);
-         break;
-      case AST_FORMAT_ULAW:
-         set_line_codec.codec = BCMPH_CODEC_ULAW;
-         bytes_per_sample = 1;
-         frame_size_read = (BCMPH_MAX_BUF / 2);
-         break;
-      case AST_FORMAT_SLINEAR:
-         set_line_codec.codec = BCMPH_CODEC_LINEAR;
-         bytes_per_sample = 2;
-         frame_size_read = BCMPH_MAX_BUF;
-         break;
-      case AST_FORMAT_SLINEAR16:
-         set_line_codec.codec = BCMPH_CODEC_LINEAR16;
-         /*
-          With codec LINEAR16 we receive 16 samples of 2 bytes per ms
-          which is equivalent to 8 samples of 4 bytes per ms
-         */
-         bytes_per_sample = 4;
-         frame_size_read = BCMPH_MAX_BUF;
-         break;
-      default:
-         bcm_assert(false);
-         break;
+   if (bcmph_ast_formats_are_equal(ast_format_ulaw, format)) {
+      new_format = ast_format_ulaw;
+      set_line_codec.codec = BCMPH_CODEC_ULAW;
+      bytes_per_sample = 1;
+      frame_size_read = (BCMPH_MAX_BUF / 2);
+   }
+   else if (bcmph_ast_formats_are_equal(ast_format_alaw, format)) {
+      new_format = ast_format_alaw;
+      set_line_codec.codec = BCMPH_CODEC_ALAW;
+      bytes_per_sample = 1;
+      frame_size_read = (BCMPH_MAX_BUF / 2);
+   }
+   else if (bcmph_ast_formats_are_equal(ast_format_slin, format)) {
+      new_format = ast_format_slin;
+      set_line_codec.codec = BCMPH_CODEC_LINEAR;
+      bytes_per_sample = 2;
+      frame_size_read = BCMPH_MAX_BUF;
+   }
+   else if (bcmph_ast_formats_are_equal(ast_format_slin16, format)) {
+      new_format = ast_format_slin16;
+      set_line_codec.codec = BCMPH_CODEC_LINEAR16;
+      /*
+       With codec LINEAR16 we receive 16 samples of 2 bytes per ms
+       which is equivalent to 8 samples of 4 bytes per ms
+      */
+      bytes_per_sample = 4;
+      frame_size_read = BCMPH_MAX_BUF;
+   }
+   else {
+      bcm_assert(false);
    }
    set_line_codec.mode = mode;
    set_line_codec.tone = bcm_phone_line_tone_code_index(tone);
@@ -589,7 +1045,12 @@ static int bcmph_set_line_codec(bcmph_pvt_t *pvt,
    }
    else {
       frame_size_read -= (frame_size_read % bytes_per_sample);
-      ast_format_copy(&(pvt->ast_channel.current_format), format);
+      bcm_assert(NULL != new_format);
+      bcmph_ao2_ref_format(new_format, 1);
+      if (NULL != pvt->ast_channel.current_format) {
+         bcmph_ao2_ref_format(pvt->ast_channel.current_format, -1);
+      }
+      pvt->ast_channel.current_format = new_format;
       pvt->ast_channel.bytes_per_sample = bytes_per_sample;
       pvt->ast_channel.frame_size_read = frame_size_read;
       bcm_assert(pvt->ast_channel.bytes_per_sample <= ARRAY_SIZE(pvt->ast_channel.bytes_not_written));
@@ -715,7 +1176,7 @@ static void bcmph_set_new_state(bcmph_pvt_t *pvt,
          bcmph_reset_pvt_monitor_state(pvt);
          /*
           We start searching bcmph_default_extension ('s') after
-          pvt->line_cfg->dialing_timeout milliseconds
+          pvt->line_cfg->dialing_timeout_1st_digit milliseconds
          */
          pvt->ast_channel.search_extension = true;
          pvt->ast_channel.tv_last_digit = ast_tvnow();
@@ -780,9 +1241,11 @@ static void bcmph_unlink_from_ast_channel(bcmph_pvt_t *pvt,
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && (NULL != pvt->owner) && (pvt->owner_lock_count > 0));
 
-
-   ast_format_clear(&(pvt->ast_channel.current_format));
-   ast_channel_tech_pvt_set(ast, NULL);
+   if (NULL != pvt->ast_channel.current_format) {
+      bcmph_ao2_ref_format(pvt->ast_channel.current_format, -1);
+      pvt->ast_channel.current_format = NULL;
+   }
+   bcmph_ast_channel_tech_pvt_set(ast, NULL);
    pvt->owner = NULL;
    ast_setstate(ast, AST_STATE_DOWN);
    /* Set state before unlocking the channel */
@@ -797,7 +1260,7 @@ static void bcmph_unlink_from_ast_channel(bcmph_pvt_t *pvt,
       bcmph_set_new_state(pvt, BCMPH_ST_DISCONNECTED, BCMPH_EV_DISCONNECTED);
    }
    bcm_pr_debug("Line %lu unlink from channel '%s'.\n",
-      (unsigned long)(pvt->index_line + 1), ast_channel_name(ast));
+      (unsigned long)(pvt->index_line + 1), bcmph_ast_channel_name(ast));
    ast_module_unref(ast_module_info->self);
    if (unlock_ast_channel) {
 #ifdef BCMPH_DEBUG
@@ -811,7 +1274,13 @@ static void bcmph_unlink_from_ast_channel(bcmph_pvt_t *pvt,
 /* Must be called with monitor.lock locked and pvt->owner set to NULL */
 static void bcmph_new(bcmph_pvt_t *pvt,
    bcmph_state_t state, bcmph_event_t cause,
-   const char *linkedid, bool *try_to_lock_ast_channel)
+#if (AST_VERSION <= 110)
+   const char *linkedid,
+#else /* (AST_VERSION > 110) */
+   const struct ast_assigned_ids *assigned_ids,
+   const struct ast_channel *requestor,
+#endif /* (AST_VERSION > 110) */
+   bool *try_to_lock_ast_channel)
 {
    struct ast_channel *tmp;
    enum ast_channel_state ast_state;
@@ -856,55 +1325,74 @@ static void bcmph_new(bcmph_pvt_t *pvt,
    tmp = ast_channel_alloc(1, ast_state,
       ('\0' != pvt->line_cfg->cid_num[0]) ? pvt->line_cfg->cid_num : NULL,
       ('\0' != pvt->line_cfg->cid_name[0]) ? pvt->line_cfg->cid_name : NULL,
-      "" /* acctcode */, pvt->ast_channel.digits, pvt->line_cfg->context, linkedid, 0,
+      "" /* acctcode */, pvt->ast_channel.digits, pvt->line_cfg->context,
+#if (AST_VERSION <= 110)
+      linkedid, 0,
+#else /* (AST_VERSION > 110) */
+      assigned_ids, requestor, AST_AMA_NONE,
+#endif /* (AST_VERSION > 110) */
       "%s/%lu", pvt->channel->chan_tech.type, (unsigned long)(pvt->index_line + 1));
    if (NULL != tmp) {
-      struct ast_format tmpfmt;
+      bcmph_ast_format *tmpfmt;
       bool hangup = false;
 
       /* From version 12.0, ast_channel_alloc() returned an ast_channel locked */
-      if (bcmph_cmp_with_ast_version("120000") > 0) {
-         /*
-          We can safely lock channel (without fear of a deadlock because
-          monitor.lock is locked), for 2 reasons :
-          - channel_tech is not set
-          - pvt->owner is still NULL
-         */
-         ast_channel_lock(tmp);
-      }
+#if (AST_VERSION <= 110)
+      /*
+       We can safely lock channel (without fear of a deadlock because
+       monitor.lock is locked), for 2 reasons :
+       - channel_tech is not set
+       - pvt->owner is still NULL
+      */
+      ast_channel_lock(tmp);
+#endif /* (AST_VERSION <= 110) */
 #ifdef BCMPH_DEBUG
       pvt->owner_lock_count += 1;
       bcm_assert(pvt->owner_lock_count > 0);
 #endif /* BCMPH_DEBUG */
 
       /* Set channel tech */
-      ast_channel_tech_set(tmp, &(pvt->channel->chan_tech));
+      bcmph_ast_channel_tech_set(tmp, &(pvt->channel->chan_tech));
 
       /* No file descriptor to poll (polling done in monitor thread) */
       ast_channel_set_fd(tmp, 0, -1);
-      ast_format_cap_copy(ast_channel_nativeformats(tmp), pvt->line_cfg->capabilities);
+      bcmph_ast_channel_nativeformats_set(tmp, bcmph_get_line_cfg_cap(pvt->line_cfg));
       if ((DETECT_DTMF_ALWAYS == pvt->line_cfg->detect_dtmf)
           || (DETECT_DTMF_WHEN_CONNECTED == pvt->line_cfg->detect_dtmf)) {
-         ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0);
-         if (!ast_format_cap_iscompatible(pvt->line_cfg->capabilities, &(tmpfmt))) {
-            ast_best_codec(ast_channel_nativeformats(tmp), &(tmpfmt));
+         if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
+            tmpfmt = ast_format_slin;
+            bcmph_ao2_ref_format(tmpfmt, 1);
+         }
+         else {
+            tmpfmt = bcmph_ast_format_cap_get_preferred(bcmph_get_line_cfg_cap(pvt->line_cfg));
          }
       }
       else {
-         ast_best_codec(ast_channel_nativeformats(tmp), &(tmpfmt));
+         tmpfmt = bcmph_ast_format_cap_get_preferred(bcmph_get_line_cfg_cap(pvt->line_cfg));
       }
-      ast_format_copy(ast_channel_rawreadformat(tmp), &(tmpfmt));
-      ast_format_copy(ast_channel_rawwriteformat(tmp), &(tmpfmt));
+      bcmph_ast_channel_set_rawreadformat(tmp, tmpfmt);
+      bcmph_ast_channel_set_rawwriteformat(tmp, tmpfmt);
+      bcmph_ast_channel_set_readformat(tmp, tmpfmt);
+      bcmph_ast_channel_set_writeformat(tmp, tmpfmt);
+      bcmph_ao2_ref_format(tmpfmt, -1);
       /* no need to call ast_setstate: the channel_alloc already did its job */
-      ast_channel_exten_set(tmp, pvt->ast_channel.digits);
+      bcmph_ast_channel_context_set(tmp, pvt->line_cfg->context);
+      bcmph_ast_channel_exten_set(tmp, pvt->ast_channel.digits);
       if (!ast_strlen_zero(pvt->channel->config.language)) {
-         ast_channel_language_set(tmp, pvt->channel->config.language);
+         bcmph_ast_channel_language_set(tmp, pvt->channel->config.language);
       }
       if (AST_STATE_RING == ast_state) {
-         ast_channel_rings_set(tmp, 1);
+         bcmph_ast_channel_rings_set(tmp, 1);
+      }
+      /* Don't use ast_set_callerid() here because it will
+       * generate a NewCallerID event before the NewChannel event */
+      if (!ast_strlen_zero(pvt->line_cfg->cid_num)) {
+         bcmph_ast_channel_caller(tmp)->ani.number.valid = 1;
+         ast_free(bcmph_ast_channel_caller(tmp)->ani.number.str);
+         bcmph_ast_channel_caller(tmp)->ani.number.str = ast_strdup(pvt->line_cfg->cid_num);
       }
 
-      ast_channel_tech_pvt_set(tmp, pvt);
+      bcmph_ast_channel_tech_pvt_set(tmp, pvt);
       ast_module_ref(ast_module_info->self);
       pvt->owner = tmp;
 
@@ -922,7 +1410,7 @@ static void bcmph_new(bcmph_pvt_t *pvt,
       ast_channel_unlock(tmp);
 
       if ((!hangup) && (AST_STATE_DOWN != ast_state) && (ast_pbx_start(tmp))) {
-         ast_log(AST_LOG_ERROR, "Unable to start PBX on '%s'\n", ast_channel_name(tmp));
+         ast_log(AST_LOG_ERROR, "Unable to start PBX on '%s'\n", bcmph_ast_channel_name(tmp));
          hangup = true;
       }
       /*
@@ -981,7 +1469,8 @@ static void bcmph_new(bcmph_pvt_t *pvt,
  Beware that it can take several milliseconds to execute
 */
 static int bcmph_setup(bcmph_pvt_t *pvt,
-   const struct ast_format *format, enum ast_channel_state ast_state)
+   const bcmph_ast_format *format,
+   enum ast_channel_state ast_state)
 {
    int ret = 0;
 
@@ -995,8 +1484,8 @@ static int bcmph_setup(bcmph_pvt_t *pvt,
          ret = -1;
          break;
       }
-      if (!ast_format_cap_iscompatible(pvt->line_cfg->capabilities, format)) {
-         ast_log(AST_LOG_WARNING, "Can't do format '%s'\n", ast_getformatname(format));
+      if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), format)) {
+         ast_log(AST_LOG_WARNING, "Can't do format '%s'\n", bcmph_ast_format_get_name(format));
          ret = -1;
          break;
       }
@@ -1038,7 +1527,8 @@ static struct ast_frame *bcmph_read_frame(bcmph_pvt_t *pvt, bool detect_dtmf, bo
          pvt->ast_channel.frame.datalen = len;
          pvt->ast_channel.frame.samples = len / pvt->ast_channel.bytes_per_sample;
          pvt->ast_channel.frame.frametype = AST_FRAME_VOICE;
-         ast_format_copy(&(pvt->ast_channel.frame.subclass.format), &(pvt->ast_channel.current_format));
+         bcm_assert(NULL != pvt->ast_channel.current_format);
+         bcmph_ast_set_frame_format(&(pvt->ast_channel.frame), pvt->ast_channel.current_format);
          pvt->ast_channel.frame.src = bcmph_chan_type;
          pvt->ast_channel.frame.offset = AST_FRIENDLY_OFFSET;
          pvt->ast_channel.frame.mallocd = 0;
@@ -1080,7 +1570,7 @@ static bool bcmph_queue_read(bcmph_pvt_t *pvt, bool *unlock_mmap)
       size_t len;
       bool detect_dtmf = ((DETECT_DTMF_ALWAYS == pvt->line_cfg->detect_dtmf)
          || (DETECT_DTMF_WHEN_CONNECTED == pvt->line_cfg->detect_dtmf));
-      bool queue_frames = (AST_STATE_UP == ast_channel_state(pvt->owner));
+      bool queue_frames = (AST_STATE_UP == bcmph_ast_channel_state(pvt->owner));
 
       /* Check that there are data in the ring buffer */
       len = bcm_ring_buf_get_size(&(pvt->ast_channel.mmap.dev_rx_ring_buf));
@@ -1098,7 +1588,8 @@ static bool bcmph_queue_read(bcmph_pvt_t *pvt, bool *unlock_mmap)
             pvt->ast_channel.frame_to_queue.datalen = len;
             pvt->ast_channel.frame_to_queue.samples = len / pvt->ast_channel.bytes_per_sample;
             pvt->ast_channel.frame_to_queue.frametype = AST_FRAME_VOICE;
-            ast_format_copy(&(pvt->ast_channel.frame_to_queue.subclass.format), &(pvt->ast_channel.current_format));
+            bcm_assert(NULL != pvt->ast_channel.current_format);
+            bcmph_ast_set_frame_format(&(pvt->ast_channel.frame_to_queue), pvt->ast_channel.current_format);
             pvt->ast_channel.frame_to_queue.src = bcmph_chan_type;
             pvt->ast_channel.frame_to_queue.offset = 0;
             pvt->ast_channel.frame_to_queue.mallocd = 0;
@@ -1182,7 +1673,7 @@ static void bcmph_queue_hangup(bcmph_pvt_t *pvt, bcmph_event_t cause)
    bcmph_unlink_from_ast_channel(pvt, cause, true);
    bcm_assert(NULL == pvt->owner);
    if (ast_queue_hangup(ast)) {
-      ast_log(AST_LOG_WARNING, "Unable to queue hangup on line '%s'\n", ast_channel_name(ast));
+      ast_log(AST_LOG_WARNING, "Unable to queue hangup on line '%s'\n", bcmph_ast_channel_name(ast));
    }
 }
 
@@ -1230,17 +1721,17 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
          */
          bool hangup = true;
          if (BCMPH_ST_ON_RINGING == pvt->ast_channel.state) {
-            bcm_assert(AST_STATE_RINGING == ast_channel_state(pvt->owner));
+            bcm_assert(AST_STATE_RINGING == bcmph_ast_channel_state(pvt->owner));
             /* The user wants to answer the call */
-            if (bcmph_setup(pvt, ast_channel_rawreadformat(pvt->owner), AST_STATE_UP)) {
-               ast_log(AST_LOG_ERROR, "Unable to answer the call on '%s'\n", ast_channel_name(pvt->owner));
+            if (bcmph_setup(pvt, bcmph_ast_channel_rawreadformat(pvt->owner), AST_STATE_UP)) {
+               ast_log(AST_LOG_ERROR, "Unable to answer the call on '%s'\n", bcmph_ast_channel_name(pvt->owner));
             }
             else {
                if (ast_queue_control(pvt->owner, AST_CONTROL_ANSWER)) {
-                  ast_log(AST_LOG_ERROR, "Unable to answer the call on '%s'\n", ast_channel_name(pvt->owner));
+                  ast_log(AST_LOG_ERROR, "Unable to answer the call on '%s'\n", bcmph_ast_channel_name(pvt->owner));
                }
                else {
-                  bcm_pr_debug("Call answered on '%s'\n", ast_channel_name(pvt->owner));
+                  bcm_pr_debug("Call answered on '%s'\n", bcmph_ast_channel_name(pvt->owner));
                   hangup = false;
                   bcmph_set_new_state(pvt, BCMPH_ST_OFF_TALKING, BCMPH_EV_OFF_HOOK);
                   bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.monitor_busy_period);
@@ -1285,25 +1776,24 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
                 We set the mode to BCMPH_MODE_OFF_TALKING to receive
                 audio data in which we try to detect DTMF tones
                */
-               struct ast_format tmpfmt;
-
+               bcmph_ast_format *tmpfmt;
                /*
                 AST_FORMAT_SLINEAR is the recommended codec for frames
                 processed by dsp
                */
-               ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0);
-               if (!ast_format_cap_iscompatible(pvt->line_cfg->capabilities, &(tmpfmt))) {
+               tmpfmt = ast_format_slin;
+               if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt)) {
                   /*
                    AST_FORMAT_SLINEAR is not supported by the line,
-                   so we fall back to ALAW or ULAW
+                   so we fall back to ULAW or ALAW
                   */
-                  ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0);
-                  if (!ast_format_cap_iscompatible(pvt->line_cfg->capabilities, &(tmpfmt))) {
-                     ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0);
-                     bcm_assert(ast_format_cap_iscompatible(pvt->line_cfg->capabilities, &(tmpfmt)));
+                  tmpfmt = ast_format_ulaw;
+                  if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt)) {
+                     tmpfmt = ast_format_alaw;
+                     bcm_assert(bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt));
                   }
                }
-               if (bcmph_set_line_codec(pvt, &(tmpfmt), BCMPH_MODE_OFF_TALKING, BCMPH_TONE_WAITING_DIAL)) {
+               if (bcmph_set_line_codec(pvt, tmpfmt, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_WAITING_DIAL)) {
                   new_state = BCMPH_ST_OFF_NO_SERVICE;
                   cause = BCMPH_EV_INTERNAL_ERROR;
                }
@@ -1319,6 +1809,9 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
             */
             pvt->ast_channel.digits_len = 0;
             bcmph_new(pvt, BCMPH_ST_OFF_WAITING_ANSWER, BCMPH_EV_OFF_HOOK,
+#if (AST_VERSION > 110)
+               NULL,
+#endif /* (AST_VERSION > 110) */
                NULL, &(monitor_prms->channel_is_locked));
          }
       }
@@ -1387,9 +1880,9 @@ static void bcmph_handle_tone_change(bcmph_pvt_t *pvt,
  Must be called with monitor.lock locked and pvt->owner set to NULL
 */
 static void bcmph_search_extension(bcmph_pvt_t *pvt,
-   bcmph_monitor_prms_t *monitor_prms)
+   bcmph_monitor_prms_t *monitor_prms, bool ignore_timeout)
 {
-   /* bcm_pr_debug("bcmph_search_extension()\n"); */
+   /* bcm_pr_debug("bcmph_search_extension(ignore_timeout=%d)\n", (int)(ignore_timeout)); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && (NULL == pvt->owner) && (pvt->line_cfg->monitor_dialing)
@@ -1400,24 +1893,34 @@ static void bcmph_search_extension(bcmph_pvt_t *pvt,
       if (!pvt->ast_channel.search_extension) {
          break;
       }
-      if (pvt->line_cfg->dialing_timeout > 0) {
-         struct timeval now = ast_tvnow();
-         int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
-         if (tvdiff < pvt->line_cfg->dialing_timeout) {
-            bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->line_cfg->dialing_timeout - tvdiff));
-            break;
-         }
-      }
-      pvt->ast_channel.search_extension = false;
-      /* We test if, with these numbers, the extension is valid */
       bcm_assert(pvt->ast_channel.digits_len < ARRAY_LEN(pvt->ast_channel.digits));
       if (pvt->ast_channel.digits_len <= 0) {
+         if ((!ignore_timeout) && (pvt->line_cfg->dialing_timeout_1st_digit > 0)) {
+            struct timeval now = ast_tvnow();
+            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
+            if (tvdiff < pvt->line_cfg->dialing_timeout_1st_digit) {
+               bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->line_cfg->dialing_timeout_1st_digit - tvdiff));
+               break;
+            }
+            bcm_pr_debug("Timeout %d reached : searching for default extension\n", (int)(pvt->line_cfg->dialing_timeout_1st_digit));
+         }
          bcm_assert(ARRAY_LEN(bcmph_default_extension) <= ARRAY_LEN(pvt->ast_channel.digits));
          strcpy(pvt->ast_channel.digits, bcmph_default_extension);
       }
       else {
+         if ((!ignore_timeout) && (pvt->line_cfg->dialing_timeout > 0)) {
+            struct timeval now = ast_tvnow();
+            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
+            if (tvdiff < pvt->line_cfg->dialing_timeout) {
+               bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->line_cfg->dialing_timeout - tvdiff));
+               break;
+            }
+            bcm_pr_debug("Timeout %d reached : searching for extension\n", (int)(pvt->line_cfg->dialing_timeout));
+         }
          pvt->ast_channel.digits[pvt->ast_channel.digits_len] = '\0';
       }
+      pvt->ast_channel.search_extension = false;
+      /* We test if, with these numbers, the extension is valid */
       bcm_pr_debug("Searching for extension '%s' in context '%s'\n",
          pvt->ast_channel.digits, pvt->line_cfg->context);
       /*
@@ -1429,6 +1932,9 @@ static void bcmph_search_extension(bcmph_pvt_t *pvt,
          /* It's a valid extension in its context, get moving! */
          bcm_pr_debug("Extension '%s' found in context '%s'\n", pvt->ast_channel.digits, pvt->line_cfg->context);
          bcmph_new(pvt, BCMPH_ST_OFF_WAITING_ANSWER, BCMPH_EV_EXT_FOUND,
+#if (AST_VERSION > 110)
+            NULL,
+#endif /* (AST_VERSION > 110) */
             NULL, &(monitor_prms->channel_is_locked));
       }
       else {
@@ -1500,7 +2006,7 @@ static void bcmph_try_to_send_dtmf(bcmph_pvt_t *pvt,
        and AST_FRAME_DTMF_END (it does it only when processing
        a frame)
       */
-      if (AST_STATE_UP == ast_channel_state(pvt->owner)) {
+      if (AST_STATE_UP == bcmph_ast_channel_state(pvt->owner)) {
          if (ast_queue_frame(pvt->owner, &(ast_null_frame))) {
             ast_log(AST_LOG_WARNING, "Can't queue null frame for line %lu\n", (unsigned long)(pvt->index_line + 1));
          }
@@ -1564,21 +2070,37 @@ static void bcmph_handle_digits(bcmph_pvt_t *pvt,
       do { /* Empty loop */
          size_t i = 0;
          /* We search for an extension before adding new digit */
-         bcmph_search_extension(pvt, monitor_prms);
+         bcmph_search_extension(pvt, monitor_prms, false);
          if ((BCMPH_ST_OFF_DIALING != pvt->ast_channel.state) || (!monitor_prms->channel_is_locked)) {
             break;
          }
          while ((i < digits_len) && (pvt->ast_channel.digits_len < (ARRAY_LEN(pvt->ast_channel.digits) - 1))) {
-            pvt->ast_channel.digits[pvt->ast_channel.digits_len] = digits[i];
-            i += 1;
             if (0 == pvt->ast_channel.digits_len) {
                /* We switch off the BCMPH_TONE_WAITING_DIAL tone */
                bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_NONE), 0);
             }
+            /*
+             If the digit is equal to pvt->line_cfg->search_extension_trigger,
+             we search for an extension now, without adding the digit
+            */
+            bcm_assert('\0' != digits[i]);
+            if (/* ('\0' != pvt->line_cfg->search_extension_trigger)
+                && */(digits[i] == pvt->line_cfg->search_extension_trigger)) {
+               bcm_pr_debug("Digit %c dialed : searching extension immediately\n", (char)(digits[i]));
+               pvt->ast_channel.search_extension = true;
+               bcmph_search_extension(pvt, monitor_prms, true);
+               bcm_assert(!pvt->ast_channel.search_extension);
+               if ((BCMPH_ST_OFF_DIALING != pvt->ast_channel.state) || (!monitor_prms->channel_is_locked)) {
+                  break;
+               }
+            }
+            pvt->ast_channel.digits[pvt->ast_channel.digits_len] = digits[i];
+            i += 1;
             pvt->ast_channel.digits_len += 1;
+            /* If there's no timeout, we search for an extension now */
             if (pvt->line_cfg->dialing_timeout <= 0) {
                pvt->ast_channel.search_extension = true;
-               bcmph_search_extension(pvt, monitor_prms);
+               bcmph_search_extension(pvt, monitor_prms, true);
                bcm_assert(!pvt->ast_channel.search_extension);
                if ((BCMPH_ST_OFF_DIALING != pvt->ast_channel.state) || (!monitor_prms->channel_is_locked)) {
                   break;
@@ -1721,7 +2243,28 @@ static void bcmph_monitor_pvt(bcmph_pvt_t *pvt,
       if ((monitor_prms->channel_is_locked)
           && (BCMPH_ST_OFF_DIALING == pvt->ast_channel.state)
           && (!new_digit_dialed)) {
-         bcmph_search_extension(pvt, monitor_prms);
+         bcmph_search_extension(pvt, monitor_prms, false);
+      }
+   }
+   else if (BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state)
+   {
+      /*
+       In this state we could have change the mode of the line to
+       BCMPH_MODE_OFF_TALKING, because we had some data to write.
+       But if in this mode it means we can receive data.
+       That data is useless so we simply discard it.
+      */
+      if (!bcmph_mmap_trylock(pvt->channel)) {
+         /* Check that there are data in the ring buffer */
+         size_t len = bcm_ring_buf_get_size(&(pvt->ast_channel.mmap.dev_rx_ring_buf));
+         if (len > 0) {
+            bcm_ring_buf_remove_len(&(pvt->ast_channel.mmap.dev_rx_ring_buf), len);
+            if (bcmph_do_ioctl(pvt->channel, BCMPH_IOCTL_READ_MM, (unsigned long)((len << 8) | pvt->index_line), false)) {
+               ast_log(AST_LOG_ERROR, "Can't remove data in RX buffer of line %lu\n", (unsigned long)(pvt->index_line + 1));
+            }
+         }
+         bcmph_update_ring_bufs_desc(pvt->channel);
+         bcmph_mmap_unlock(pvt->channel);
       }
    }
 }
@@ -2082,7 +2625,6 @@ static int bcmph_open_device(bcmph_chan_t *t)
       bcm_phone_get_mmap_rbs_location_t *mmap_rbs_location;
       bcm_phone_get_line_states_t *get_line_states;
       bcmph_pvt_t *pvt;
-      struct ast_format tmpfmt;
 
       bcm_pr_debug("Opening device '%s'\n", bcmph_device);
 
@@ -2141,23 +2683,33 @@ static int bcmph_open_device(bcmph_chan_t *t)
          i = pvt->index_line;
          bcm_assert(pvt->line_cfg->enable);
          phone_cfg->line_params[i].enable = 1;
-         /*
-          For initial config we choose the codec that uses the less timeslots
-          Alaw is told to be simpler to process that ulaw so we give it precedence over ulaw
-         */
-         if (ast_format_cap_iscompatible(pvt->line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0))) {
-            phone_cfg->line_params[i].codec = BCMPH_CODEC_ALAW;
-         }
-         else if (ast_format_cap_iscompatible(pvt->line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0))) {
-            phone_cfg->line_params[i].codec = BCMPH_CODEC_ULAW;
-         }
-         else if (ast_format_cap_iscompatible(pvt->line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0))) {
+
+         if (((DETECT_DTMF_WHEN_CONNECTED == pvt->line_cfg->detect_dtmf)
+              || (DETECT_DTMF_ALWAYS == pvt->line_cfg->detect_dtmf))
+              && (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin))) {
             phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR;
             phone_cfg->pcm_use_16bits_timeslot = true;
          }
-         else if (ast_format_cap_iscompatible(pvt->line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR16, 0))) {
-            phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR16;
-            phone_cfg->pcm_use_16bits_timeslot = true;
+         else {
+            /*
+             For initial config we choose the codec that uses the less timeslots
+             Even if alaw is told to be simpler to process that ulaw,
+             ulaw (which is american) is more "standard" than alaw (which is only european)
+            */
+            if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_alaw)) {
+               phone_cfg->line_params[i].codec = BCMPH_CODEC_ALAW;
+            }
+            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_ulaw)) {
+               phone_cfg->line_params[i].codec = BCMPH_CODEC_ULAW;
+            }
+            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
+               phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR;
+               phone_cfg->pcm_use_16bits_timeslot = true;
+            }
+            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin16)) {
+               phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR16;
+               phone_cfg->pcm_use_16bits_timeslot = true;
+            }
          }
       }
 
@@ -2218,33 +2770,40 @@ static int bcmph_open_device(bcmph_chan_t *t)
          bcm_phone_line_state_t *line_state;
          bcm_phone_line_mode_t mode_wanted;
          bcm_phone_line_tone_t tone_wanted;
+         if (NULL != pvt->ast_channel.current_format) {
+            bcmph_ao2_ref_format(pvt->ast_channel.current_format, -1);
+            pvt->ast_channel.current_format = NULL;
+         }
          i = pvt->index_line;
          bcm_assert(i < ARRAY_LEN(get_line_states->line_state));
          line_state = &(get_line_states->line_state[i]);
          switch (line_state->codec) {
-            case BCMPH_CODEC_ALAW:
-               ast_format_set(&(pvt->ast_channel.current_format), AST_FORMAT_ALAW, 0);
+            case BCMPH_CODEC_ULAW:
+               pvt->ast_channel.current_format = ast_format_ulaw;
                pvt->ast_channel.bytes_per_sample = 1;
                pvt->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
                break;
-            case BCMPH_CODEC_ULAW:
-               ast_format_set(&(pvt->ast_channel.current_format), AST_FORMAT_ULAW, 0);
+            case BCMPH_CODEC_ALAW:
+               pvt->ast_channel.current_format = ast_format_alaw;
                pvt->ast_channel.bytes_per_sample = 1;
                pvt->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
                break;
             case BCMPH_CODEC_LINEAR:
-               ast_format_set(&(pvt->ast_channel.current_format), AST_FORMAT_SLINEAR, 0);
+               pvt->ast_channel.current_format = ast_format_slin;
                pvt->ast_channel.bytes_per_sample = 2;
                pvt->ast_channel.frame_size_read = BCMPH_MAX_BUF;
                break;
             case BCMPH_CODEC_LINEAR16:
-               ast_format_set(&(pvt->ast_channel.current_format), AST_FORMAT_SLINEAR16, 0);
+               pvt->ast_channel.current_format = ast_format_slin16;
                pvt->ast_channel.bytes_per_sample = 4;
                pvt->ast_channel.frame_size_read = BCMPH_MAX_BUF;
                break;
             default:
                bcm_assert(false);
                break;
+         }
+         if (NULL != pvt->ast_channel.current_format) {
+            bcmph_ao2_ref_format(pvt->ast_channel.current_format, 1);
          }
          pvt->ast_channel.frame_size_read -= (pvt->ast_channel.frame_size_read % pvt->ast_channel.bytes_per_sample);
          pvt->ast_channel.bytes_not_written_len = 0;
@@ -2295,10 +2854,17 @@ static int bcmph_open_device(bcmph_chan_t *t)
 
 static inline bcmph_pvt_t *bcmph_get_pvt(struct ast_channel *ast)
 {
-   bcmph_pvt_t *pvt = ast_channel_tech_pvt(ast);
+   bcmph_pvt_t *pvt = bcmph_ast_channel_tech_pvt(ast);
 
    if ((NULL == pvt) || (pvt->owner != ast)) {
-      ast_log(AST_LOG_WARNING, "Channel '%s' unlink to a line or linked to another line\n", ast_channel_name(ast));
+      /*
+       * As we unlink the line from its channel as soon as we detect phone
+       * transitions from off hook to on hook, it's possible
+       * Asterisk calls some functions (that call this one), passing
+       * a channel with a pvt that's NULL.
+       * If pvt is not NULL, we check that pvt is linked to this channel,
+       * just in case
+       */
       pvt = NULL;
    }
    return (pvt);
@@ -2313,12 +2879,18 @@ static inline bcmph_pvt_t *bcmph_get_pvt(struct ast_channel *ast)
  * \retval 0 on success
  * \retval -1 on failure
  */
-static int bcmph_chan_call(struct ast_channel *ast, const char *addr, int timeout)
+static int bcmph_chan_call(struct ast_channel *ast,
+#if (AST_VERSION < 110)
+   char *addr,
+#else /* (AST_VERSION >= 110) */
+   const char *addr,
+#endif /* (AST_VERSION >= 110)*/
+   int timeout)
 {
    int ret = -1;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_call(ast='%s', addr='%s', timeout=%d)\n", ast_channel_name(ast), addr, (int)(timeout));
+   bcm_pr_debug("bcmph_chan_call(ast='%s', addr='%s', timeout=%d)\n", bcmph_ast_channel_name(ast), addr, (int)(timeout));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -2328,15 +2900,15 @@ static int bcmph_chan_call(struct ast_channel *ast, const char *addr, int timeou
       do { /* Empty loop */
          /* If phone is off hook, call() is not allowed */
          if (BCMPH_STATUS_ON_HOOK != pvt->ast_channel.current_status) {
-            ast_log(AST_LOG_NOTICE, "'%s' is busy\n", ast_channel_name(ast));
+            ast_log(AST_LOG_NOTICE, "'%s' is busy\n", bcmph_ast_channel_name(ast));
             ast_setstate(ast, AST_STATE_BUSY);
             ast_queue_control(ast, AST_CONTROL_BUSY);
          }
          else {
-            enum ast_channel_state ast_state = ast_channel_state(ast);
+            enum ast_channel_state ast_state = bcmph_ast_channel_state(ast);
             if ((AST_STATE_DOWN != ast_state) && (AST_STATE_RESERVED != ast_state)) {
                ast_log(AST_LOG_WARNING, "bcmph_chan_call() called on '%s', neither down nor reserved\n",
-                  ast_channel_name(ast));
+                  bcmph_ast_channel_name(ast));
             }
             else {
                struct timeval utc_time = ast_tvnow();
@@ -2348,7 +2920,7 @@ static int bcmph_chan_call(struct ast_channel *ast, const char *addr, int timeou
                 (BCMPH_ST_ON_IDLE == pvt->ast_channel.state) because
                 pvt->owner is NULL, or if
                 (BCMPH_ST_ON_PRE_RINGING == pvt->ast_channel.state)
-                because ast_channel_state(ast) is AST_STATE_RING
+                because bcmph_ast_channel_state(ast) is AST_STATE_RING
                 So, as (BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status)
                 (BCMPH_ST_ON_PRE_RINGING == pvt->ast_channel.state)
                */
@@ -2362,20 +2934,21 @@ static int bcmph_chan_call(struct ast_channel *ast, const char *addr, int timeou
                snprintf(cid.hour, sizeof(cid.hour),   "%02d", (int)(tm.tm_hour));
                snprintf(cid.min, sizeof(cid.min),     "%02d", (int)(tm.tm_min));
                /* the standard format of ast->callerid is:  "name" <number>, but not always complete */
-               if ((!ast_channel_connected(ast)->id.name.valid)
-                   || (ast_strlen_zero(ast_channel_connected(ast)->id.name.str))) {
-                  strcpy(cid.name, DEFAULT_CALLER_ID);
+               if ((!bcmph_ast_channel_connected(ast)->id.name.valid)
+                   || (ast_strlen_zero(bcmph_ast_channel_connected(ast)->id.name.str))) {
+                  ast_copy_string(cid.name, DEFAULT_CALLER_ID, sizeof(cid.name));
                }
                else {
-                  ast_copy_string(cid.name, ast_channel_connected(ast)->id.name.str, sizeof(cid.name));
+                  ast_copy_string(cid.name, bcmph_ast_channel_connected(ast)->id.name.str, sizeof(cid.name));
                }
 
-               if ((ast_channel_connected(ast)->id.number.valid) && (ast_channel_connected(ast)->id.number.str)) {
-                  ast_copy_string(cid.number, ast_channel_connected(ast)->id.number.str, sizeof(cid.number));
+               if ((bcmph_ast_channel_connected(ast)->id.number.valid)
+                   && (!ast_strlen_zero(bcmph_ast_channel_connected(ast)->id.number.str))) {
+                  ast_copy_string(cid.number, bcmph_ast_channel_connected(ast)->id.number.str, sizeof(cid.number));
                }
 
                bcm_pr_debug("Ringing '%s' on '%s' (with CID '%s', '%s')\n",
-                  addr, ast_channel_name(ast), cid.number, cid.name);
+                  addr, bcmph_ast_channel_name(ast), cid.number, cid.name);
 
                /* TODO : handle CID when driver allows it */
 
@@ -2415,7 +2988,7 @@ static int bcmph_chan_answer(struct ast_channel *ast)
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
    /* Remote end has answered the call */
-   bcm_pr_debug("bcmph_chan_answer(ast='%s')\n", ast_channel_name(ast));
+   bcm_pr_debug("bcmph_chan_answer(ast='%s')\n", bcmph_ast_channel_name(ast));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -2424,15 +2997,15 @@ static int bcmph_chan_answer(struct ast_channel *ast)
 #endif /* BCMPH_DEBUG */
       /* If phone not off hook, answer() is not allowed */
       if (BCMPH_STATUS_OFF_HOOK != pvt->ast_channel.current_status) {
-         ast_log(AST_LOG_WARNING, "Channel '%s' can't answer now, because not off hook\n", ast_channel_name(ast));
+         ast_log(AST_LOG_WARNING, "Channel '%s' can't answer now, because not off hook\n", bcmph_ast_channel_name(ast));
       }
       else {
          /* We accept that answer() can be called if BCMPH_ST_OFF_TALKING == pvt->ast_channel.state */
          if (BCMPH_ST_OFF_TALKING != pvt->ast_channel.state) {
             bcm_assert(BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state);
-            ret = bcmph_setup(pvt, ast_channel_rawreadformat(pvt->owner), AST_STATE_UP);
+            ret = bcmph_setup(pvt, bcmph_ast_channel_rawreadformat(pvt->owner), AST_STATE_UP);
             if (!ret) {
-               ast_channel_rings_set(pvt->owner, 0);
+               bcmph_ast_channel_rings_set(pvt->owner, 0);
                bcmph_set_new_state(pvt, BCMPH_ST_OFF_TALKING, BCMPH_EV_AST_ANSWER);
             }
          }
@@ -2454,7 +3027,7 @@ static int bcmph_chan_fixup(struct ast_channel *old, struct ast_channel *new)
 {
    bcmph_pvt_t *pvt = bcmph_get_pvt(old);
 
-   bcm_pr_debug("bcmph_chan_fixup(old='%s', new='%s')\n", ast_channel_name(old), ast_channel_name(new));
+   bcm_pr_debug("bcmph_chan_fixup(old='%s', new='%s')\n", bcmph_ast_channel_name(old), bcmph_ast_channel_name(new));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -2485,7 +3058,7 @@ static int bcmph_chan_fixup(struct ast_channel *old, struct ast_channel *new)
  */
 static int bcmph_chan_digit_begin(struct ast_channel *ast, char digit)
 {
-   bcm_pr_debug("bcmph_chan_digit_begin(ast='%s', digit='%c')\n", ast_channel_name(ast), (char)(digit));
+   bcm_pr_debug("bcmph_chan_digit_begin(ast='%s', digit='%c')\n", bcmph_ast_channel_name(ast), (char)(digit));
 
    /* Done in bcmph_chan_digit_end() */
 
@@ -2504,7 +3077,7 @@ static int bcmph_chan_digit_end(struct ast_channel *ast, char digit, unsigned in
    bcm_phone_line_tone_t tone;
 
    bcm_pr_debug("bcmph_chan_digit_end(ast='%s', digit='%c', duration=%u)\n",
-      ast_channel_name(ast), (char)(digit), (unsigned int)(duration));
+      bcmph_ast_channel_name(ast), (char)(digit), (unsigned int)(duration));
 
    ast_channel_lock(ast);
 
@@ -2624,7 +3197,7 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
    int ret = -1;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_indicate(ast='%s', condition=%d)\n", ast_channel_name(ast), (int)(condition));
+   bcm_pr_debug("bcmph_chan_indicate(ast='%s', condition=%d)\n", bcmph_ast_channel_name(ast), (int)(condition));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -2672,12 +3245,15 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
                break;
             }
             case AST_CONTROL_INCOMPLETE:
-            case AST_CONTROL_PVT_CAUSE_CODE: {
+#if (AST_VERSION >= 110)
+            case AST_CONTROL_PVT_CAUSE_CODE:
+#endif /* (AST_VERSION >= 110) */
+               {
                break;
             }
             default: {
                /* -1 lets asterisk generate the tone */
-               ast_log(AST_LOG_WARNING, "Condition %d is not supported on channel '%s'\n", (int)(condition), ast_channel_name(ast));
+               ast_log(AST_LOG_WARNING, "Condition %d is not supported on channel '%s'\n", (int)(condition), bcmph_ast_channel_name(ast));
                break;
             }
          }
@@ -2702,7 +3278,7 @@ static struct ast_frame *bcmph_chan_read(struct ast_channel *ast)
    struct ast_frame *ret = &(ast_null_frame);
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   /* bcm_pr_debug("bcmph_chan_read(ast='%s')\n", ast_channel_name(ast)); */
+   /* bcm_pr_debug("bcmph_chan_read(ast='%s')\n", bcmph_ast_channel_name(ast)); */
 
    if (NULL != pvt) {
       bool do_unlock = false;
@@ -2713,7 +3289,7 @@ static struct ast_frame *bcmph_chan_read(struct ast_channel *ast)
 #endif /* BCMPH_DEBUG */
       do { /* Empty loop */
          if ((BCMPH_STATUS_OFF_HOOK != pvt->ast_channel.current_status)
-             || (AST_STATE_UP != ast_channel_state(ast))) {
+             || (AST_STATE_UP != bcmph_ast_channel_state(ast))) {
             /* Don't try to send audio on-hook */
             ast_log(AST_LOG_WARNING, "Trying to receive audio while not off hook or not in the correct state\n");
             break;
@@ -2755,7 +3331,7 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
    int ret = 0;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   /* bcm_pr_debug("bcmph_chan_write(ast='%s')\n", ast_channel_name(ast)); */
+   /* bcm_pr_debug("bcmph_chan_write(ast='%s')\n", bcmph_ast_channel_name(ast)); */
 
    if (NULL != pvt) {
       bool do_unlock = false;
@@ -2779,15 +3355,15 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
             break;
          }
 
-         if (!ast_format_cap_iscompatible(pvt->line_cfg->capabilities, &(frame->subclass.format))) {
-            ast_log(AST_LOG_WARNING, "Cannot handle frames in '%s' format\n", ast_getformatname(&(frame->subclass.format)));
+         if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), bcmph_ast_get_frame_format(frame))) {
+            ast_log(AST_LOG_WARNING, "Cannot handle frames in '%s' format\n", bcmph_ast_format_get_name(bcmph_ast_get_frame_format(frame)));
             ret = -1;
             break;
          }
 
          if ((BCMPH_STATUS_OFF_HOOK != pvt->ast_channel.current_status)
              || (BCMPH_ST_OFF_DIALING == pvt->ast_channel.state)
-             /* || (AST_STATE_UP != ast_channel_state(pvt->owner)) */) {
+             /* || (AST_STATE_UP != bcmph_ast_channel_state(pvt->owner)) */) {
             /* Don't try to send audio on-hook or not in the correct state */
             ast_log(AST_LOG_WARNING, "Trying to send audio while not off hook or not in the correct state\n");
             break;
@@ -2796,10 +3372,39 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
          bcm_assert((BCMPH_ST_OFF_TALKING == pvt->ast_channel.state)
             || (BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state));
 
-         if (pvt->ast_channel.current_format.id != frame->subclass.format.id) {
-            if (bcmph_set_line_codec(pvt, &(frame->subclass.format), BCMPH_MODE_UNSPECIFIED, BCMPH_TONE_UNSPECIFIED)) {
-               ret = -1;
-               break;
+         if (BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state) {
+            if ((NULL == pvt->ast_channel.current_format)
+                || (!bcmph_ast_formats_are_equal(pvt->ast_channel.current_format, bcmph_ast_get_frame_format(frame)))) {
+               bcm_phone_line_mode_t mode;
+               if (BCMPH_MODE_OFF_TALKING != pvt->ast_channel.current_mode) {
+                  bcm_pr_debug("bcmph_chan_write() : changing codec and switching to mode off talking, before call is answered\n");
+                  mode = BCMPH_MODE_OFF_TALKING;
+               }
+               else {
+                  bcm_pr_debug("bcmph_chan_write() : changing codec before call is answered\n");
+                  mode = BCMPH_MODE_UNSPECIFIED;
+               }
+               if (bcmph_set_line_codec(pvt, bcmph_ast_get_frame_format(frame), mode, BCMPH_TONE_UNSPECIFIED)) {
+                  ret = -1;
+                  break;
+               }
+            }
+            else if (BCMPH_MODE_OFF_TALKING != pvt->ast_channel.current_mode) {
+               bcm_pr_debug("bcmph_chan_write() : switching to mode off talking, before call is answered\n");
+               if (bcmph_set_line_mode(pvt, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_UNSPECIFIED, -1)) {
+                  ret = -1;
+                  break;
+               }
+            }
+         }
+         else {
+            bcm_assert(BCMPH_MODE_OFF_TALKING == pvt->ast_channel.current_mode);
+            if ((NULL == pvt->ast_channel.current_format)
+                || (!bcmph_ast_formats_are_equal(pvt->ast_channel.current_format, bcmph_ast_get_frame_format(frame)))) {
+               if (bcmph_set_line_codec(pvt, bcmph_ast_get_frame_format(frame), BCMPH_MODE_UNSPECIFIED, BCMPH_TONE_UNSPECIFIED)) {
+                  ret = -1;
+                  break;
+               }
             }
          }
 
@@ -2934,15 +3539,15 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
  */
 static int bcmph_chan_hangup(struct ast_channel *ast)
 {
-   bcmph_pvt_t *pvt = ast_channel_tech_pvt(ast);
+   bcmph_pvt_t *pvt = bcmph_ast_channel_tech_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_hangup(ast='%s')\n", ast_channel_name(ast));
+   bcm_pr_debug("bcmph_chan_hangup(ast='%s')\n", bcmph_ast_channel_name(ast));
 
    if ((NULL == pvt) || (pvt->owner != ast)) {
-      ast_log(AST_LOG_DEBUG, "Channel '%s' unlink or link to another line\n", ast_channel_name(ast));
+      ast_log(AST_LOG_DEBUG, "Channel '%s' unlink or link to another line\n", bcmph_ast_channel_name(ast));
       if ((NULL != pvt) && (NULL == pvt->owner)) {
          /* Can happen if bcmph_chan_hangup() called while we are still in bcmph_new() */
-         ast_channel_tech_pvt_set(ast, NULL);
+         bcmph_ast_channel_tech_pvt_set(ast, NULL);
       }
    }
    else {
@@ -2964,7 +3569,7 @@ static int bcmph_chan_hangup(struct ast_channel *ast)
       pvt->owner_lock_count -= 1;
 #endif /* BCMPH_DEBUG */
    }
-   bcm_pr_debug("'%s' hung up\n", ast_channel_name(ast));
+   bcm_pr_debug("'%s' hung up\n", bcmph_ast_channel_name(ast));
    ast_setstate(ast, AST_STATE_DOWN);
 
    return (0);
@@ -2973,8 +3578,21 @@ static int bcmph_chan_hangup(struct ast_channel *ast)
 /******************************************************************************/
 
 static struct ast_channel *bcmph_chan_request(const char *type,
-   struct ast_format_cap *cap, const struct ast_channel *requestor,
-   const char *addr, int *cause);
+#if (AST_VERSION < 110)
+   format_t cap,
+#else /* (AST_VERSION >= 110) */
+   bcmph_ast_format_cap *cap,
+#endif /* (AST_VERSION >= 110)*/
+#if (AST_VERSION > 110)
+   const struct ast_assigned_ids *assigned_ids,
+#endif /* (AST_VERSION > 110) */
+   const struct ast_channel *requestor,
+#if (AST_VERSION < 110)
+   void *addr,
+#else /* (AST_VERSION >= 110) */
+   const char *addr,
+#endif /* (AST_VERSION >= 110)*/
+   int *cause);
 
 static bcmph_chan_t bcmph_chan = {
    .chan_tech = {
@@ -3030,12 +3648,28 @@ static bcmph_chan_t bcmph_chan = {
  * \retval non-NULL channel on success
  */
 static struct ast_channel *bcmph_chan_request(const char *type,
-   struct ast_format_cap *cap, const struct ast_channel *requestor,
-   const char *addr, int *cause)
+#if (AST_VERSION < 110)
+   format_t cap,
+#else /* (AST_VERSION >= 110) */
+   bcmph_ast_format_cap *cap,
+#endif /* (AST_VERSION >= 110) */
+#if (AST_VERSION > 110)
+   const struct ast_assigned_ids *assigned_ids,
+#endif /* (AST_VERSION > 110) */
+   const struct ast_channel *requestor,
+#if (AST_VERSION < 110)
+   void *_addr,
+#else /* (AST_VERSION >= 110) */
+   const char *addr,
+#endif /* (AST_VERSION >= 110)*/
+   int *cause)
 {
    struct ast_channel *ret = NULL;
    bcmph_chan_t *t = &(bcmph_chan);
    bcmph_pvt_t *pvt;
+#if (AST_VERSION < 110)
+   const char *addr = _addr;
+#endif /* (AST_VERSION < 110) */
 
    bcm_pr_debug("bcmph_chan_request(type='%s', addr='%s')\n", type, addr);
 
@@ -3053,11 +3687,20 @@ static struct ast_channel *bcmph_chan_request(const char *type,
          sprintf(tmp, "%lu", (unsigned long)(pvt->index_line + 1));
          length = strlen(tmp);
          if ((0 == strncmp(addr, tmp, length)) && (!isalnum(addr[length]))) {
-            if (ast_format_cap_has_joint(cap, pvt->channel->chan_tech.capabilities)) {
+#if (AST_VERSION < 110)
+            if (bcmph_ast_format_cap_iscompatible_cap(&(cap), bcmph_get_chan_tech_cap(&(pvt->channel->chan_tech)))) {
+#else /* (AST_VERSION >= 110) */
+            if (bcmph_ast_format_cap_iscompatible_cap(cap, bcmph_get_chan_tech_cap(&(pvt->channel->chan_tech)))) {
+#endif /* (AST_VERSION >= 110)*/
                if ((NULL == pvt->owner) && (BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status)) {
                   bcm_assert(BCMPH_ST_ON_IDLE == pvt->ast_channel.state);
                   bcmph_new(pvt, BCMPH_ST_ON_PRE_RINGING, BCMPH_EV_AST_REQUEST,
-                     ((NULL != requestor) ? ast_channel_linkedid(requestor) : NULL), NULL);
+#if (AST_VERSION <= 110)
+                     ((NULL != requestor) ? bcmph_ast_channel_linkedid(requestor) : NULL),
+#else /* (AST_VERSION > 110) */
+                     assigned_ids, requestor,
+#endif /* (AST_VERSION > 110) */
+                     NULL);
                   ret = pvt->owner;
                }
                else {
@@ -3066,8 +3709,13 @@ static struct ast_channel *bcmph_chan_request(const char *type,
                }
             }
             else {
+#if (AST_VERSION <= 110)
                char buf[256];
                ast_log(AST_LOG_WARNING, "Asked to get a channel of unsupported format '%s'\n", ast_getformatname_multiple(buf, sizeof(buf), cap));
+#else /* (AST_VERSION > 110) */
+               struct ast_str *buf = ast_str_alloca(256);
+               ast_log(AST_LOG_WARNING, "Asked to get a channel of unsupported format '%s'\n", ast_format_cap_get_names(cap, &(buf)));
+#endif /* (AST_VERSION > 110) */
             }
             break;
          }
@@ -3341,6 +3989,10 @@ static int __unload_module(void)
          bcmph_pvt_t *pl = p;
          p = AST_LIST_NEXT(p, list);
          bcm_phone_line_state_deinit(&(pl->monitor.line_state));
+         if (NULL != pl->ast_channel.current_format) {
+            bcmph_ao2_ref_format(pl->ast_channel.current_format, -1);
+            pl->ast_channel.current_format = NULL;
+         }
          if (NULL != pl->ast_channel.dsp) {
             ast_dsp_free(pl->ast_channel.dsp);
             pl->ast_channel.dsp = NULL;
@@ -3350,14 +4002,20 @@ static int __unload_module(void)
 
       /* We free structures allocated for the configuration */
       for (i = 0; (i < ARRAY_LEN(t->config.line_cfgs)); i += 1) {
+#if (AST_VERSION >= 110)
          if (NULL != t->config.line_cfgs[i].capabilities) {
-            t->config.line_cfgs[i].capabilities = ast_format_cap_destroy(t->config.line_cfgs[i].capabilities);
+            bcmph_ast_format_cap_destroy(t->config.line_cfgs[i].capabilities);
+            t->config.line_cfgs[i].capabilities = NULL;
          }
+#endif /* (AST_VERSION >= 110) */
       }
 
+#if (AST_VERSION >= 110)
       if (NULL != t->chan_tech.capabilities) {
-         t->chan_tech.capabilities = ast_format_cap_destroy(t->chan_tech.capabilities);
+         bcmph_ast_format_cap_destroy(t->chan_tech.capabilities);
+         t->chan_tech.capabilities = NULL;
       }
+#endif /* (AST_VERSION >= 110) */
 
       ast_mutex_destroy(&(t->monitor.lock));
       ast_mutex_destroy(&(t->mmap.lock));
@@ -3417,12 +4075,11 @@ static bcmph_pvt_t *bcmph_add_pvt(bcmph_chan_t *t, size_t index_line)
       }
       tmp->ast_channel.state = BCMPH_ST_DISCONNECTED;
       /*
-       Here it does not matter if line handles AST_FORMAT_ALAW or not, because
-       the following fields are initialized in bcmph_set_line_codec() when we
-       switch the line to conversation mode (state BCMPH_ST_OFF_TALKING)
-       (bcmph_setup())
+       Here it does not matter if line handles AST_FORMAT_ULAW or not, because
+       the following fields are initialized in bcmph_open_device()
       */
-      ast_format_set(&(tmp->ast_channel.current_format), AST_FORMAT_ALAW, 0);
+      tmp->ast_channel.current_format = ast_format_ulaw;
+      bcmph_ao2_ref_format(tmp->ast_channel.current_format, 1);
       tmp->ast_channel.bytes_per_sample = 1;
       tmp->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
       tmp->ast_channel.bytes_not_written_len = 0;
@@ -3439,6 +4096,8 @@ static int load_module(void)
    bcmph_chan_t *t = &(bcmph_chan);
    struct ast_config *cfg = CONFIG_STATUS_FILEINVALID;
    size_t i;
+
+   bcmph_init_cache_ast_format();
 
    memset(&(t->config), 0, sizeof(t->config));
    t->config.line_count = 0;
@@ -3458,27 +4117,48 @@ static int load_module(void)
    t->monitor.lock_count = 0;
 #endif /* BCMPH_DEBUG */
    t->monitor.line_off_hook_count = 0;
+#if (AST_VERSION < 110)
+   t->chan_tech.capabilities = 0;
+#else /* (AST_VERSION >= 110) */
    t->chan_tech.capabilities = NULL;
+#endif /* (AST_VERSION >= 110)*/
    for (i = 0; (i < ARRAY_LEN(t->config.line_cfgs)); i += 1) {
-      t->config.line_cfgs[i].capabilities = NULL;
-      t->config.line_cfgs[i].detect_dtmf = DETECT_DTMF_NEVER;
+      bcmph_line_config_t *line_cfg = &(t->config.line_cfgs[i]);
+      line_cfg->enable = false;
+#if (AST_VERSION < 110)
+      line_cfg->capabilities = 0;
+      bcmph_ast_format_cap_remove_by_type(bcmph_get_line_cfg_cap(line_cfg), AST_MEDIA_TYPE_UNKNOWN);
+#else /* (AST_VERSION >= 110) */
+      line_cfg->capabilities = NULL;
+#endif /* (AST_VERSION >= 110)*/
+      line_cfg->monitor_dialing = false;
+      line_cfg->search_extension_trigger = '\0';
+      line_cfg->dialing_timeout_1st_digit = 5000;
+      line_cfg->dialing_timeout = 3000;
+      line_cfg->detect_dtmf = DETECT_DTMF_NEVER;
+      sprintf(line_cfg->context, "bcmph-line-%d", (int)(i + 1));
+      sprintf(line_cfg->cid_name, "line%d", (int)(i + 1));
+      sprintf(line_cfg->cid_num, "00-00-00-%02d", (int)(i + 1));
+      ast_copy_string(line_cfg->moh_interpret, "default", ARRAY_LEN(line_cfg->moh_interpret));
    }
 
    do { /* Empty loop */
       struct ast_variable *v;
       struct ast_flags config_flags = { 0 };
-      struct ast_format tmpfmt;
       size_t max_bytes_per_sample;
 
-      t->chan_tech.capabilities = ast_format_cap_alloc();
+#if (AST_VERSION >= 110)
+      t->chan_tech.capabilities = bcmph_ast_format_cap_alloc();
       if (NULL == t->chan_tech.capabilities) {
          ret = AST_MODULE_LOAD_DECLINE;
          break;
       }
-      ast_format_cap_add(t->chan_tech.capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0));
-      ast_format_cap_add(t->chan_tech.capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0));
-      ast_format_cap_add(t->chan_tech.capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0));
-      ast_format_cap_add(t->chan_tech.capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR16, 0));
+#endif /* (AST_VERSION >= 110) */
+      bcmph_ast_format_cap_remove_by_type(bcmph_get_chan_tech_cap(&(t->chan_tech)), AST_MEDIA_TYPE_UNKNOWN);
+      /*
+       * Formats are added when reading configuration of lines, as a union of
+       * all formats supported by each line
+      */
 
       bcm_pr_debug("Reading configuration file '%s'\n", bcmph_cfg_file);
 
@@ -3702,36 +4382,47 @@ static int load_module(void)
                char *f;
                char *save_ptr = NULL;
 
+#if (AST_VERSION >= 110)
                if (NULL == line_cfg->capabilities) {
-                  line_cfg->capabilities = ast_format_cap_alloc();
+                  line_cfg->capabilities = bcmph_ast_format_cap_alloc();
                   if (NULL == line_cfg->capabilities) {
                      ret = AST_MODULE_LOAD_DECLINE;
                      break;
                   }
+                  bcmph_ast_format_cap_remove_by_type(bcmph_get_line_cfg_cap(line_cfg), AST_MEDIA_TYPE_UNKNOWN);
                }
+#endif /* (AST_VERSION >= 110) */
                ast_copy_string(codecs, v->value, ARRAY_LEN(codecs));
                f = strtok_r(codecs, ",", &(save_ptr));
                while (NULL != f)
                {
                   const char *format_name = ast_strip(f);
-                  if (0 == strcasecmp(format_name, ast_getformatname(ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0)))) {
-                     ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0);
-                     ast_format_cap_add(line_cfg->capabilities, &(tmpfmt));
+                  if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_ulaw))) {
+                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_ulaw);
+                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_ulaw)) {
+                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_ulaw);
+                     }
                   }
-                  else if (0 == strcasecmp(format_name, ast_getformatname(ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0)))) {
-                     ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0);
-                     ast_format_cap_add(line_cfg->capabilities, &(tmpfmt));
+                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_alaw))) {
+                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_alaw);
+                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_alaw)) {
+                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_alaw);
+                     }
                   }
-                  else if (0 == strcasecmp(format_name, ast_getformatname(ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0)))) {
-                     ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0);
-                     ast_format_cap_add(line_cfg->capabilities, &(tmpfmt));
+                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_slin))) {
+                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin);
+                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin)) {
+                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin);
+                     }
                      if (max_bytes_per_sample < 2) {
                         max_bytes_per_sample = 2;
                      }
                   }
-                  else if (0 == strcasecmp(format_name, ast_getformatname(ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR16, 0)))) {
-                     ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR16, 0);
-                     ast_format_cap_add(line_cfg->capabilities, &(tmpfmt));
+                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_slin16))) {
+                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin16);
+                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin16)) {
+                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin16);
+                     }
                      if (max_bytes_per_sample < 4) {
                         max_bytes_per_sample = 4;
                      }
@@ -3758,6 +4449,32 @@ static int load_module(void)
                else {
                   line_cfg->monitor_dialing = false;
                }
+            }
+            else if (!strcasecmp(v->name, "search_extension_trigger")) {
+               char value[32];
+               char *f;
+
+               ast_copy_string(value, v->value, ARRAY_LEN(value));
+               f = ast_strip(value);
+               if (('\0' == f[0]) || ('\0' == f[1])) {
+                  line_cfg->search_extension_trigger = f[0];
+               }
+               else {
+                  ast_log(AST_LOG_ERROR, "Invalid value for variable 'search_extension_trigger' in section '%s' of config file '%s'\n",
+                     section, bcmph_cfg_file);
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+            }
+            else if (!strcasecmp(v->name, "dialing_timeout_1st_digit")) {
+               int tmp;
+               if ((1 != sscanf(v->value, " %10d ", &(tmp))) || (tmp < 0)) {
+                  ast_log(AST_LOG_ERROR, "Invalid value for variable 'dialing_timeout_1st_digit' in section '%s' of config file '%s'\n",
+                     section, bcmph_cfg_file);
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+               line_cfg->dialing_timeout_1st_digit = tmp;
             }
             else if (!strcasecmp(v->name, "dialing_timeout")) {
                int tmp;
@@ -3811,35 +4528,72 @@ static int load_module(void)
             break;
          }
          if (line_cfg->enable) {
+#if (AST_VERSION < 110)
+            if (0 == line_cfg->capabilities) {
+#else /* (AST_VERSION >= 110) */
             if (NULL == line_cfg->capabilities) {
+#endif /* (AST_VERSION >= 110)*/
                ast_log(AST_LOG_ERROR, "No codec specified for line %lu in config file '%s'\n",
                   (unsigned long)(i + 1), bcmph_cfg_file);
                ret = AST_MODULE_LOAD_DECLINE;
                break;
             }
             if (DETECT_DTMF_NEVER != line_cfg->detect_dtmf) {
-               if ((!ast_format_cap_iscompatible(line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_SLINEAR, 0)))
-                   && (!ast_format_cap_iscompatible(line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ALAW, 0)))
-                   && (!ast_format_cap_iscompatible(line_cfg->capabilities, ast_format_set(&(tmpfmt), AST_FORMAT_ULAW, 0)))) {
-                  ast_log(AST_LOG_ERROR, "Line %lu does not support codec alaw, ulaw or slin, so DTMF detection is not possible\n",
+               if ((!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin))
+                   && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_ulaw))
+                   && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_alaw))) {
+                  ast_log(AST_LOG_ERROR, "Line %lu does not support codec ulaw, alaw or slin, so DTMF detection is not possible\n",
                      (unsigned long)(i + 1));
                   ret = AST_MODULE_LOAD_DECLINE;
                   break;
                }
                if ((DETECT_DTMF_ALWAYS == line_cfg->detect_dtmf)
                    || (DETECT_DTMF_WHEN_CONNECTED == line_cfg->detect_dtmf)) {
+                  /*
+                   * We check that line supports only codecs compatible with
+                   * DTMF detection, because if line supports an incompatible
+                   * codec, Asterisk could choose it and it will prevent DTMF
+                   * detection.
+                   */
+#if (AST_VERSION < 110)
+                  unsigned long long mask = 0x1ULL;
+                  while (mask) {
+                     bcmph_ast_format tmp = line_cfg->capabilities & mask;
+                     bcmph_ast_format *tmpfmt;
+                     mask <<= 1;
+                     if (!tmp) {
+                        continue;
+                     }
+                     tmpfmt = &(tmp);
+                     bcmph_ao2_ref_format(tmpfmt, 1);
+#endif /* (AST_VERSION < 110) */
+#if (110 == AST_VERSION)
+                  bcmph_ast_format tmp;
                   ast_format_cap_iter_start(line_cfg->capabilities);
-                  while (!ast_format_cap_iter_next(line_cfg->capabilities, &(tmpfmt))) {
-                     if ((AST_FORMAT_SLINEAR != tmpfmt.id)
-                         && (AST_FORMAT_ALAW != tmpfmt.id)
-                         && (AST_FORMAT_ULAW != tmpfmt.id)) {
+                  while (!ast_format_cap_iter_next(bcmph_get_line_cfg_cap(line_cfg), &(tmp))) {
+                     bcmph_ast_format *tmpfmt = &(tmp);
+                     bcmph_ao2_ref_format(tmpfmt, 1);
+#endif /* (110 == AST_VERSION) */
+#if (AST_VERSION > 110)
+                  size_t format_count = ast_format_cap_count(bcmph_get_line_cfg_cap(line_cfg));
+                  size_t j;
+                  for (j = 0; (j < format_count); j += 1) {
+                     bcmph_ast_format *tmpfmt = ast_format_cap_get_format(bcmph_get_line_cfg_cap(line_cfg), j);
+#endif /* (AST_VERSION > 110) */
+                     if ((!bcmph_ast_formats_are_equal(tmpfmt, ast_format_slin))
+                         && (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_ulaw))
+                         && (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_alaw))) {
+                        bcmph_ao2_ref_format(tmpfmt, -1);
                         ast_log(AST_LOG_ERROR, "Line %lu supports codec '%s', but it's not compatible with DTMF detection\n",
-                           (unsigned long)(i + 1), ast_getformatname(&(tmpfmt)));
+                           (unsigned long)(i + 1), bcmph_ast_format_get_name(tmpfmt));
                         ret = AST_MODULE_LOAD_DECLINE;
                         break;
                      }
+                     bcmph_ao2_ref_format(tmpfmt, -1);
                   }
+#if (110 == AST_VERSION)
                   ast_format_cap_iter_end(line_cfg->capabilities);
+#endif /* (110 == AST_VERSION) */
                   if (AST_MODULE_LOAD_SUCCESS != ret) {
                      break;
                   }
