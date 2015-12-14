@@ -22,6 +22,7 @@
 			<Add option="-Wall" />
 			<Add option="-fPIC -pthread" />
 			<Add option="-DBCMPH_NOHW" />
+			<Add option="-DAST_VERSION=110" />
 			<Add directory="../bcm63xx-phone/src/inc" />
 		</Compiler>
 		<Linker>
