@@ -537,6 +537,142 @@ static phone_desc_t hw556_phone_desc = {
    },
 };
 
+static zarlink_device_parameters_t a226m_le88221_dev_params = {
+   .type = VP_DEV_880_SERIES,
+   .profiles = {
+      .dev_profile = DEV_PROFILE_VE880_ABS100V_PCM,
+      .default_AC_profile_NB = AC_FXS_RF14_600R_DEF,
+      .AC_profiles_NB = {
+#undef COUNTRY_ARCHIVE_MAKE_NAME
+#define COUNTRY_ARCHIVE_MAKE_NAME(country) AC_FXS_RF14_##country,
+#include <countryArchive.h>
+      },
+      .default_AC_profile_WB = NULL,
+      .AC_profiles_WB = {
+#undef COUNTRY_ARCHIVE_MAKE_NAME
+#define COUNTRY_ARCHIVE_MAKE_NAME(country) NULL,
+#include <countryArchive.h>
+      },
+      .default_DC_profile = DC_FXS_VE880_ABS100V_DEF,
+      .DC_profiles = {
+#undef COUNTRY_ARCHIVE_MAKE_NAME
+#define COUNTRY_ARCHIVE_MAKE_NAME(country) NULL,
+#include <countryArchive.h>
+      },
+      .default_ring_profile = RING_25HZ_VE880_ABS100V_DEF,
+      .ring_profiles= {
+#undef COUNTRY_ARCHIVE_MAKE_NAME
+#define COUNTRY_ARCHIVE_MAKE_NAME(country) RING_VE880_ABS100V_##country,
+#include <countryArchive.h>
+      },
+   },
+   .modes = {
+      .on_hook_idle = VP_LINE_STANDBY,
+      .on_hook_ringing = VP_LINE_RINGING,
+      .ring_cadence = {
+         .on_time = 2000,
+         .off_time = 4000,
+      },
+      .off_hook_idle = VP_LINE_ACTIVE,
+      .off_hook_talking = VP_LINE_TALK,
+   },
+   .tones = {
+      .waiting_dial = {
+         .profile = TONE_DIAL,
+         .on_time = 0x8000,
+         .off_time = 0,
+      },
+      .invalid = {
+         .profile = TONE_BUSY,
+         .on_time = 250,
+         .off_time = 200,
+      },
+      .ringback = {
+         .profile = TONE_RINGBACK,
+         .on_time = 2000,
+         .off_time = 4000,
+      },
+      .busy = {
+         .profile = TONE_BUSY,
+         .on_time = 500,
+         .off_time = 500,
+      },
+      .disconnect = {
+         .profile = TONE_ROH,
+         .on_time = 100,
+         .off_time = 100,
+      },
+   }
+};
+
+static zarlink_line_parameters_t a226m_le88221_line0_params = {
+   .id = 0,
+   .type = VP_TERM_FXS_GENERIC,
+};
+
+static zarlink_line_parameters_t a226m_le88221_line1_params = {
+   .id = 1,
+   .type = VP_TERM_FXS_GENERIC,
+};
+
+static phone_desc_t a226m_phone_desc = {
+   .pcm_ctrl_reg = (PCM_CLOCK_INV | PCM_FS_TRIG | PCM_DATA_OFF),
+   .clk_rate = 2048, // Clock rate must be the same as the one coded in zarlink profiles
+   .tick_period = 10, // in msecs, must be coherent with zarlink profiles
+   .device_count = 1,
+   .devices = {
+      {
+         .type = BCMPH_VD_ZARLINK_88221,
+         .caps = BCMPH_CAPS_REQUIRES_RESET
+            | BCMPH_CAPS_ALAW_CODEC | BCMPH_CAPS_ULAW_CODEC
+            | BCMPH_CAPS_LINEAR_CODEC,
+         .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
+         .mpi_params = {
+#ifdef BCMPH_USE_SPI_DRIVER
+            .bus_num = 0,
+#endif // BCMPH_USE_SPI_DRIVER
+            .cs = 2,
+            /* Le88221 supports a MPI CLK period of 122 ns min (8.196721 MHz)
+             the closest freq supported by SPI controller is 6.25 MHz.
+             But we must have a CS off time of 2500 ns min which means 15.62 CLK period
+             As SPI controler can be configured with a value between 0 and 7,
+             the frequency can be at most 1,563 MHz (because at this frequency, 2500 ns
+             is 3.9075 CLK period)
+            */
+            .clk = 1563000,
+            .toggle_cs = true,
+#ifndef BCMPH_USE_SPI_DRIVER
+            /* Le88221 requires a CS off time of 2500 ns min between each byte :
+             if CLK is 1.563 MHz it means 4 periods */
+            .cs_off_time = 4,
+            .wait_completion_with_irq = false,
+            .fill_byte = 0x06, /* NOP operation for Le88221 */
+         },
+#endif // !BCMPH_USE_SPI_DRIVER
+         .line_count = 2,
+         .lines = {
+            {
+               .type = BCMPH_LIN_FXS,
+               .first_timeslot = 0,
+               .parameters = {
+                  .zarlink = &(a226m_le88221_line0_params),
+               },
+            },
+            {
+               .type = BCMPH_LIN_FXS,
+               .first_timeslot = 2,
+               .parameters = {
+                  .zarlink = &(a226m_le88221_line1_params),
+               },
+            },
+         },
+         .parameters = {
+            .zarlink = &(a226m_le88221_dev_params),
+         }
+      },
+   },
+};
+
 #ifdef BCMPH_NOHW
 static cpu_desc_t cpu_generic_desc = {
    .cpu_id = 0,
@@ -576,15 +712,19 @@ int __init board_init(void)
       else {
          board6358_desc.name = bcm63xx_nvram_get_name();
          bcm_pr_info("Board is %s\n", board6358_desc.name);
-         if (0 == strcmp(board6358_desc.name, "HW553")) {
+         if (0 == strcmp(board6358_desc.name, "HW553")) { // Huawei EchoLife HG553
             board6358_desc.phone_desc = &(hw553_phone_desc);
             board_desc = &(board6358_desc);
          }
-         else if ((0 == strcmp(board6358_desc.name, "HW556"))
+         else if ((0 == strcmp(board6358_desc.name, "HW556")) // Huawei EchoLife HG556
                   || (0 == strcmp(board6358_desc.name, "HW556_A"))
                   || (0 == strcmp(board6358_desc.name, "HW556_B"))
                   || (0 == strcmp(board6358_desc.name, "HW556_C"))) {
             board6358_desc.phone_desc = &(hw556_phone_desc);
+            board_desc = &(board6358_desc);
+         }
+         else if (0 == strcmp(board6358_desc.name, "DWV-S0")) { // Pirelli FastWeb DRG A226M
+            board6358_desc.phone_desc = &(a226m_phone_desc);
             board_desc = &(board6358_desc);
          }
          else {
