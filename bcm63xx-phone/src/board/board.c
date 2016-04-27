@@ -537,7 +537,7 @@ static phone_desc_t hw556_phone_desc = {
    },
 };
 
-static zarlink_device_parameters_t a226m_le88221_dev_params = {
+static zarlink_device_parameters_t a226m_le88266_dev_params = {
    .type = VP_DEV_880_SERIES,
    .profiles = {
       .dev_profile = DEV_PROFILE_VE880_ABS100V_PCM,
@@ -547,10 +547,10 @@ static zarlink_device_parameters_t a226m_le88221_dev_params = {
 #define COUNTRY_ARCHIVE_MAKE_NAME(country) AC_FXS_RF14_##country,
 #include <countryArchive.h>
       },
-      .default_AC_profile_WB = NULL,
+      .default_AC_profile_WB = AC_FXS_RF14_WB_600R_DEF,
       .AC_profiles_WB = {
 #undef COUNTRY_ARCHIVE_MAKE_NAME
-#define COUNTRY_ARCHIVE_MAKE_NAME(country) NULL,
+#define COUNTRY_ARCHIVE_MAKE_NAME(country) AC_FXS_RF14_WB_##country,
 #include <countryArchive.h>
       },
       .default_DC_profile = DC_FXS_VE880_ABS100V_DEF,
@@ -605,13 +605,17 @@ static zarlink_device_parameters_t a226m_le88221_dev_params = {
    }
 };
 
-static zarlink_line_parameters_t a226m_le88221_line0_params = {
-   .id = 0,
+/*
+ On Pirelli A226M, FXS port labelled phone 1 is the second line of le88266 (index 1),
+ and FXS port labelled phone 2 is the first line of le88266 (index 0)
+*/
+static zarlink_line_parameters_t a226m_le88266_line0_params = {
+   .id = 1,
    .type = VP_TERM_FXS_GENERIC,
 };
 
-static zarlink_line_parameters_t a226m_le88221_line1_params = {
-   .id = 1,
+static zarlink_line_parameters_t a226m_le88266_line1_params = {
+   .id = 0,
    .type = VP_TERM_FXS_GENERIC,
 };
 
@@ -622,17 +626,18 @@ static phone_desc_t a226m_phone_desc = {
    .device_count = 1,
    .devices = {
       {
-         .type = BCMPH_VD_ZARLINK_88221,
+         .type = BCMPH_VD_ZARLINK_88266,
          .caps = BCMPH_CAPS_REQUIRES_RESET
             | BCMPH_CAPS_ALAW_CODEC | BCMPH_CAPS_ULAW_CODEC
-            | BCMPH_CAPS_LINEAR_CODEC,
+            | BCMPH_CAPS_LINEAR_CODEC | BCMPH_CAPS_LINEAR16_CODEC
+            | BCMPH_CAPS_ALAW16_CODEC | BCMPH_CAPS_ULAW16_CODEC,
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
             .bus_num = 0,
 #endif // BCMPH_USE_SPI_DRIVER
             .cs = 2,
-            /* Le88221 supports a MPI CLK period of 122 ns min (8.196721 MHz)
+            /* Le88266 supports a MPI CLK period of 122 ns min (8.196721 MHz)
              the closest freq supported by SPI controller is 6.25 MHz.
              But we must have a CS off time of 2500 ns min which means 15.62 CLK period
              As SPI controler can be configured with a value between 0 and 7,
@@ -642,11 +647,11 @@ static phone_desc_t a226m_phone_desc = {
             .clk = 1563000,
             .toggle_cs = true,
 #ifndef BCMPH_USE_SPI_DRIVER
-            /* Le88221 requires a CS off time of 2500 ns min between each byte :
+            /* Le88266 requires a CS off time of 2500 ns min between each byte :
              if CLK is 1.563 MHz it means 4 periods */
             .cs_off_time = 4,
             .wait_completion_with_irq = false,
-            .fill_byte = 0x06, /* NOP operation for Le88221 */
+            .fill_byte = 0x06, /* NOP operation for Le88266 */
          },
 #endif // !BCMPH_USE_SPI_DRIVER
          .line_count = 2,
@@ -655,19 +660,19 @@ static phone_desc_t a226m_phone_desc = {
                .type = BCMPH_LIN_FXS,
                .first_timeslot = 0,
                .parameters = {
-                  .zarlink = &(a226m_le88221_line0_params),
+                  .zarlink = &(a226m_le88266_line0_params),
                },
             },
             {
                .type = BCMPH_LIN_FXS,
                .first_timeslot = 2,
                .parameters = {
-                  .zarlink = &(a226m_le88221_line1_params),
+                  .zarlink = &(a226m_le88266_line1_params),
                },
             },
          },
          .parameters = {
-            .zarlink = &(a226m_le88221_dev_params),
+            .zarlink = &(a226m_le88266_dev_params),
          }
       },
    },
