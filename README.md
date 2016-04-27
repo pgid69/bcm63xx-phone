@@ -6,19 +6,24 @@ Now it supports :
 
 - my router, a Huawei HW553, that has two FXS lines managed by a Legerity/Zarlink/Microsemi Le88221 device. The Broadcom 6358 SoC interfaces with Le88221 using PCM and SPI buses.
 
-- and, in theory, the Huawei HW556, that has also two FXS lines managed by a Legerity/Zarlink/Microsemi Le88266 this time. Once again the Broadcom 6358 SoC interfaces with Le88266 using PCM and SPI buses.<BR>
+- in theory, the Huawei HW556, that has also two FXS lines managed by a Legerity/Zarlink/Microsemi Le88266 this time. Once again the Broadcom 6358 SoC interfaces with Le88266 using PCM and SPI buses.<BR>
 BUT as I don't have a Huawei HW556, I never made tests with this router (only with my HW553).
+
+- the Pirelli FastWeb DRG A226M, that has also two FXS lines managed by a Legerity/Zarlink/Microsemi Le88266. Once again the Broadcom 6358 SoC interfaces with Le88266 using PCM and SPI buses.<BR>
+I don't have this router, but it's reported to work (#5)
 
 There are three subdirectories :
 
 - bcm63xx-phone : the kernel driver. It uses the Microsemi Voice Path API Lite SDK, so adding support for other Microsemi devices should be quite easy. I think that support for routers based on Broadcom 6368 SoC should be quite easy too but of course it needs testing.<BR>
 There are mainly three limitations of the kernel driver :
- * no handling of caller id (this is a limitation of Microsemi Voice Path API Lite SDK)
- * no detection of DTMF digits (and neither the Le88221 nor the Le88266 can do it in hardware). As Asterisk can do it, i just add an option in the Asterisk channel bcm63xx-ast-chan to enable or disable DTMF detection.
- * no echo cancellation. Maybe Asterisk can do it, but i never take time to try to configure Asterisk.<BR>
+  * no handling of caller id (this is a limitation of Microsemi Voice Path API Lite SDK)
+  * no detection of DTMF digits (and neither the Le88221 nor the Le88266 can do it in hardware). As Asterisk can do it, i just add an option in the Asterisk channel bcm63xx-ast-chan to enable or disable DTMF detection.
+  * no echo cancellation. Maybe Asterisk can do it, but i never take time to try to configure Asterisk.<BR>
 
-WARNING : the kernel driver manages SPI bus itself in a way more efficient than bcm63xx-spi kernel driver (because Le88221/Le88266 requires that CS signal toggles between each byte transferred on the SPI bus and that incurs big overhead if using bcm63xx-spi kernel driver), so it conflicts with bcm63xx-spi.
-You must rmmod bcm63xx-spi if you want to insmod bcm63xx-phone.
+WARNING : the kernel driver manages SPI bus itself in a way more efficient than bcm63xx-spi kernel driver (because Le88221/Le88266 requires that CS signal toggles between each byte transferred on the SPI bus and that incurs big overhead if using bcm63xx-spi kernel driver), so it conflicts with bcm63xx-spi.<BR>
+    - With OpenWrt 12.09 (AA) you must rmmod bcm63xx-spi if you want to insmod bcm63xx-phone.<BR>
+    - With OpenWrt above 12.09, you must change the default config of Linux kernel and recompile it.<BR>
+So you must apply patch located in one of the sub-folder of patches, at the root of OpenWrt source tree, remove the build directory of the Linux kernel (eg for OpenWrt 15.05 this is build_dir/target-mips_mips32_uClibc-0.9.33.2/linux-brcm63xx_generic/linux-3.18.23/) if it exists, and recompile OpenWrt.
 
 - bcm63xx-phone-test : a basic test program for the kernel driver.
 

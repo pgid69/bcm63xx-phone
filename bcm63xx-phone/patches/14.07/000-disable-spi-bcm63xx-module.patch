@@ -1,0 +1,27 @@
+From 845733ad720ff6e1ccffbbd93e56ad29f68c9b72 Mon Sep 17 00:00:00 2001
+From: Gilles Mazoyer <mazoyer.gilles@omega.ovh>
+Date: Thu, 3 Dec 2015 08:35:30 +0100
+Subject: [PATCH] Modification de la configuration par defaut du noyau pour la
+ plateforme BCM63xx, pour que le modules spi-bcm63xx ne soit pas linke avec le
+ noyau
+
+---
+ target/linux/brcm63xx/config-3.10 | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/linux/brcm63xx/config-3.10 b/target/linux/brcm63xx/config-3.10
+index 206391d..833f3d6 100644
+--- a/target/linux/brcm63xx/config-3.10
++++ b/target/linux/brcm63xx/config-3.10
+@@ -153,7 +153,7 @@ CONFIG_RTL8367_PHY=y
+ CONFIG_SERIAL_BCM63XX=y
+ CONFIG_SERIAL_BCM63XX_CONSOLE=y
+ CONFIG_SPI=y
+-CONFIG_SPI_BCM63XX=y
++CONFIG_SPI_BCM63XX=n
+ CONFIG_SPI_BCM63XX_HSSPI=y
+ CONFIG_SPI_BITBANG=y
+ CONFIG_SPI_GPIO=y
+-- 
+2.6.2
+
