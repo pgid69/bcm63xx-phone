@@ -10,7 +10,7 @@ Now it supports :
 BUT as I don't have a Huawei HW556, I never made tests with this router (only with my HW553).
 
 - the Pirelli FastWeb DRG A226M, that has also two FXS lines managed by a Legerity/Zarlink/Microsemi Le88266. Once again the Broadcom 6358 SoC interfaces with Le88266 using PCM and SPI buses.<BR>
-I don't have this router, but it's reported to work (#5)
+I don't have this router, but it's reported to work (see https://github.com/pgid69/bcm63xx-phone/issues/5)
 
 There are three subdirectories :
 
