@@ -957,6 +957,7 @@ ssize_t bcm_drv_read_line(bcm_drv_t *t,
             }
             // We don't forget to update the counter for the next call
             // to wait_event, before updating the RX buffers
+            barrier();
             wq_counter = bcm_wait_queue_get_counter(&(t->inq));
             bcm_drv_fill_rx_buffers(t);
          }
@@ -1094,6 +1095,7 @@ ssize_t bcm_drv_write_line(bcm_drv_t *t,
             }
             // We don't forget to update the counter for the next call
             // to wait_event, before updating the TX buffers
+            barrier();
             wq_counter = bcm_wait_queue_get_counter(&(t->outq));
             bcm_drv_empty_tx_buffers(t, false);
          }
@@ -1216,6 +1218,7 @@ static int bcm_drv_fsync(struct file *filp, loff_t start, loff_t end, int datasy
          // We init the counter before updating the TX buffers
          // to be sure to not loose an event on outq that would occur after
          // updating the buffers
+         barrier();
          wq_counter = bcm_wait_queue_get_counter(&(t->outq));
          bcm_drv_empty_tx_buffers(t, true);
          bcm_drv_get_data_for_tx(t, &(dummy), &(max_frames));

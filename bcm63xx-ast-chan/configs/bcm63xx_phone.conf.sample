@@ -28,9 +28,10 @@ enable = 1
 ; slin16 is not handled by all devices.
 ; Order is important : the preferred codec must be the first, followed by the
 ; second preferred...
-; If parameter detect_dtmf is not never, at least codec ulaw, alaw or slin is
+; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or slin is
 ; required.
-; If parameter detect_dtmf is connected or always, codec slin16 can't be used.
+; If parameter detect_dtmf is before_connection and/or connected, codec slin16
+; can't be used.
 codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
 context = bcmph-line-1
@@ -53,8 +54,10 @@ dialing_timeout_1st_digit = 5000
 ; timeout (in milliseconds) before searching if all the digits dialed form a
 ; valid extension. If no extension is found, the channel waits for another digit.
 dialing_timeout = 3000
-; Activate DTMF detection. Valid values are one of :
-; never, dialing, connected, always
+; Activate DTMF detection.
+; This is a list of comma separated values.
+; Valid values are : dialing, before_connection, connected
+; dialing is valid if monitor_dialing == 1
 ; DTMF detection is possible with codecs ulaw, alaw and slin,
 ; but not slin16 (see parameter codecs)
 detect_dtmf = dialing
@@ -73,9 +76,10 @@ enable = 0
 ; slin16 is not handled by all devices.
 ; Order is important : the preferred codec must be the first, followed by the
 ; second preferred...
-; If parameter detect_dtmf is not never, at least codec ulaw, alaw or slin is
+; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or slin is
 ; required.
-; If parameter detect_dtmf is connected or always, codec slin16 can't be used.
+; If parameter detect_dtmf is before_connection and/or connected, codec slin16
+; can't be used.
 codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
 context = bcmph-line-2
@@ -98,8 +102,10 @@ dialing_timeout_1st_digit = 5000
 ; timeout (in milliseconds) before searching if all the digits dialed form a
 ; valid extension. If no extension is found, the channel waits for another digit.
 dialing_timeout = 3000
-; Activate DTMF detection. Valid values are one of :
-; never, dialing, connected, always
+; Activate DTMF detection.
+; This is a list of comma separated values.
+; Valid values are : dialing, before_connection, connected
+; dialing is valid if monitor_dialing == 1
 ; DTMF detection is possible with codecs alaw, ulaw and slin,
 ; but not slin16 (see parameter codecs)
 detect_dtmf = dialing

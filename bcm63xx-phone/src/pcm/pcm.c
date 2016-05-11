@@ -2667,7 +2667,7 @@ fail_regs:
 fail_pll:
 #ifndef BCMPH_NOHW
    d_bcm_pr_debug("Disabling PCM clock\n");
-   clk_disable(t->board_desc->pcm_desc->clk);
+   clk_disable_unprepare(t->board_desc->pcm_desc->clk);
    pcm_release_shared_res();
 fail_res:
 #endif // !BCMPH_NOHW
@@ -2708,7 +2708,7 @@ void pcm_deinit(pcm_t *t)
    msleep(10);
 
    d_bcm_pr_debug("Disabling PCM clock\n");
-   clk_disable(t->board_desc->pcm_desc->clk);
+   clk_disable_unprepare(t->board_desc->pcm_desc->clk);
 
    pcm_release_shared_res();
 #endif // !BCMPH_NOHW

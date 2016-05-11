@@ -262,7 +262,7 @@ int bcm_phone_mgr_set_line_codec(bcm_phone_mgr_t *t, size_t line,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_codec(line=%lu, codec=%d, mode=%d, tone=0x%lx, wait=%d)\n",
+   d_bcm_pr_debug("bcm_phone_mgr_set_line_codec(line=%lu, codec=%d, mode=%d, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (int)(codec), (int)(mode), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -326,7 +326,7 @@ int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_mode(line=%lu, mode=%d, tone=0x%lx, wait=%d)\n",
+   d_bcm_pr_debug("bcm_phone_mgr_set_line_mode(line=%lu, mode=%d, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (int)(mode), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -386,7 +386,7 @@ int bcm_phone_mgr_set_line_tone(bcm_phone_mgr_t *t, size_t line,
    bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
 #endif // BCMPH_DEBUG
 
-   bcm_pr_debug("bcm_phone_mgr_set_line_tone(line=%lu, tone=0x%lx, wait=%d)\n",
+   d_bcm_pr_debug("bcm_phone_mgr_set_line_tone(line=%lu, tone=0x%lx, wait=%d)\n",
       (unsigned long)(line), (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == lock) && (0 == wait))
@@ -558,6 +558,7 @@ static void bcm_phone_mgr_timer_work_fn(struct work_struct *work)
                // We transfer the changes in the structure line_state
                // written and read by ioctl()
                phone_line_move_line_state(line, &(pl->shared.line_state));
+               bcm_assert(!line->line_state_changed);
                atomic_set(&(pl->shared.current_codec), pl->shared.line_state.codec);
                atomic_set(&(pl->shared.current_mode), pl->shared.line_state.mode);
                atomic_set(&(pl->shared.current_tone), pl->shared.line_state.tone);

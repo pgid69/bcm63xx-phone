@@ -88,7 +88,7 @@ static void bcm_drv_set_bytes_per_frame(bcm_drv_t *t, bcm_drv_phone_line_t *dpl,
    dpl->type_transfer = BCMPH_TRF_TEST_PCM;
    dpl->bytes_per_frame = BCMPH_PCM_MAX_CHANNELS * BCMPH_PCM_CHANNEL_WIDTH;
 #endif // BCMPH_TEST_PCM
-   bcm_pr_debug("bcm_drv_set_bytes_per_frame(pcm_use_16bits_timeslot=%d, codec=%d) => type_transfer=%d, bytes_per_frame=%lu\n",
+   d_bcm_pr_debug("bcm_drv_set_bytes_per_frame(pcm_use_16bits_timeslot=%d, codec=%d) => type_transfer=%d, bytes_per_frame=%lu\n",
       (int)(pcm_use_16bits_timeslot), (int)(codec),
       (int)(dpl->type_transfer), (unsigned long)(dpl->bytes_per_frame));
 }
@@ -420,6 +420,7 @@ static int bcm_drv_get_line_states(bcm_drv_t *t,
    int line_enabled = 0;
    int eventq_counter = 0;
    long timeout_in_jiffies;
+   size_t phone_line_count = bcm_phone_mgr_get_line_count(&(t->phone_mgr));
 
    dd_bcm_pr_debug("bcm_drv_get_line_states()\n");
 
@@ -428,7 +429,7 @@ static int bcm_drv_get_line_states(bcm_drv_t *t,
    memset(get_line_states->line_state, 0, sizeof(get_line_states->line_state));
    for (i = 0; (i < ARRAY_SIZE(get_line_states->line_state)); i += 1) {
       bcm_phone_line_state_init(&(get_line_states->line_state[i]));
-      if (bcm_phone_mgr_line_is_enabled(&(t->phone_mgr), i)) {
+      if ((i < phone_line_count) && (bcm_phone_mgr_line_is_enabled(&(t->phone_mgr), i))) {
          line_enabled += 1;
       }
    }
@@ -441,11 +442,15 @@ static int bcm_drv_get_line_states(bcm_drv_t *t,
    }
 
    if (line_enabled > 0) {
+      if (phone_line_count > ARRAY_SIZE(get_line_states->line_state)) {
+         phone_line_count = ARRAY_SIZE(get_line_states->line_state);
+      }
       for (;;) {
+         barrier();
          eventq_counter = bcm_wait_queue_get_counter(bcm_phone_mgr_get_eventq(&(t->phone_mgr)));
 
-         bcm_phone_mgr_get_line_states(&(t->phone_mgr), get_line_states->line_state, ARRAY_SIZE(get_line_states->line_state));
-         if (bcm_drv_one_line_changes_state(get_line_states->line_state, bcm_phone_mgr_get_line_count(&(t->phone_mgr)))) {
+         bcm_phone_mgr_get_line_states(&(t->phone_mgr), get_line_states->line_state, phone_line_count);
+         if (bcm_drv_one_line_changes_state(get_line_states->line_state, phone_line_count)) {
             break;
          }
 

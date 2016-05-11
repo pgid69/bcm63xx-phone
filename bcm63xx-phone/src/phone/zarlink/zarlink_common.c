@@ -1457,7 +1457,7 @@ static void phone_dev_zarlink_update_line(phone_dev_zarlink_t *t, size_t line)
       }
    }
    new_tone_index = bcm_phone_line_tone_decode_index(vl->new_tone);
-   if (!phone_dev_zarlink_is_tone_valid(ls->status, vl->new_mode, new_tone_index)) {
+   if (!phone_dev_zarlink_is_tone_valid(ls->status, ls->mode, new_tone_index)) {
       // Force new_tone to BCMPH_TONE_NONE
       new_tone_index = BCMPH_TONE_NONE;
       bcm_pr_debug("Tone 0x%lx is invalid with mode %d. Tone changed to 0x%lx\n",
