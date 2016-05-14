@@ -1354,6 +1354,19 @@ static void bcmph_new(bcmph_pvt_t *pvt,
    else {
       pvt->ast_channel.digits[pvt->ast_channel.digits_len] = '\0';
    }
+   /*
+    Because we provide no file descriptor to poll (for ast_waitfor()), it's
+    important to set parameter needqueue to true.
+    That way if Asterisk can't create a timer (eg because there's no timing
+    interfaces) it will at least create an "alert" pipe whose read end is polled
+    in ast_waitfor() and whose write end is written each time we queue a frame
+    (in ast_queue_frame()). read end of the pipe is read in ast_read().
+    If Asterisk can create a timer and if its name is "timerfd", it will not
+    create the "alert" pipe.
+    Asterisk uses the timer by setting it in continuous mode in
+    ast_queue_frame() and unsetting from continuous mode in ast_read()
+    The file descriptor provided by the timer is used in ast_waitfor().
+   */
    tmp = ast_channel_alloc(1, ast_state,
       ('\0' != pvt->line_cfg->cid_num[0]) ? pvt->line_cfg->cid_num : NULL,
       ('\0' != pvt->line_cfg->cid_name[0]) ? pvt->line_cfg->cid_name : NULL,
@@ -1386,8 +1399,6 @@ static void bcmph_new(bcmph_pvt_t *pvt,
       /* Set channel tech */
       bcmph_ast_channel_tech_set(tmp, &(pvt->channel->chan_tech));
 
-      /* No file descriptor to poll (polling done in monitor thread) */
-      ast_channel_set_fd(tmp, 0, -1);
       bcmph_ast_channel_nativeformats_set(tmp, bcmph_get_line_cfg_cap(pvt->line_cfg));
       if ((pvt->line_cfg->detect_dtmf & (DETECT_DTMF_BEFORE_CONNECTION | DETECT_DTMF_WHEN_CONNECTED))) {
          if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
