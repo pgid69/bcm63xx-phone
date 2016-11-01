@@ -39,7 +39,7 @@ Compilation is simple : just define the directory containing the three subdirect
 Configuration is shared between two files
 
 The first is /etc/asterisk/bcm3xx_phone.conf.
-It eventually needs to be adpated to your specific needs.
+It eventually needs to be adapted to your specific needs.
 By default only line 1 is enabled.
 
 The second is /etc/asterisk/extensions.conf.
@@ -50,7 +50,7 @@ Here calls should be answered by phone connected to line 1 of modem.
 
 Section [bcmph-line-1] (name of the section is configured in bcm63xx_phone.conf, parameter context) is for calls originating from phone connected to line 1 of modem.
 Here calls are forwarded to sip-provider.
-
+```
 [sip-provider-in]
 exten => s,1,Dial(Bcm63xxPhone/1,120,t)
   same => n,Hangup(16)
@@ -58,3 +58,4 @@ exten => s,1,Dial(Bcm63xxPhone/1,120,t)
 [bcmph-line-1]
 exten => _X.,1,Dial(SIP/sip-provider/${EXTEN})
   same => n,Hangup(16)
+```
