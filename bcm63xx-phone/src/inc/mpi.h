@@ -31,6 +31,8 @@ typedef struct {
 
    int num_chipselect;
 
+   const unsigned long *reg_offsets;
+
    void __iomem *regs;
    resource_size_t res_start;
    resource_size_t res_size;

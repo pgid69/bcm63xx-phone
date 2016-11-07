@@ -22,8 +22,6 @@
 #include <linux/err.h>
 #include <linux/workqueue.h>
 #include <linux/pm_runtime.h>
-
-#include <bcm63xx_dev_spi.h>
 #endif // BCMPH_USE_SPI_DRIVER
 #endif // BCMPH_NOHW
 
@@ -105,12 +103,76 @@ static void bcm_mpi_enable_extra_CSs(void)
  */
 
 #define BCM63XX_SPI_MAX_PREPEND 15
+#define BCM63XX_SPI_MAX_CS    8
+
+enum bcm63xx_regs_spi {
+   SPI_CMD,
+   SPI_INT_STATUS,
+   SPI_INT_MASK_ST,
+   SPI_INT_MASK,
+   SPI_ST,
+   SPI_CLK_CFG,
+   SPI_FILL_BYTE,
+   SPI_MSG_TAIL,
+   SPI_RX_TAIL,
+   SPI_MSG_CTL,
+   SPI_MSG_DATA,
+   SPI_RX_DATA,
+};
+
+static const unsigned long bcm6348_spi_reg_offsets[] = {
+   [SPI_CMD]      = SPI_6348_CMD,
+   [SPI_INT_STATUS]  = SPI_6348_INT_STATUS,
+   [SPI_INT_MASK_ST] = SPI_6348_INT_MASK_ST,
+   [SPI_INT_MASK]    = SPI_6348_INT_MASK,
+   [SPI_ST]    = SPI_6348_ST,
+   [SPI_CLK_CFG]     = SPI_6348_CLK_CFG,
+   [SPI_FILL_BYTE]      = SPI_6348_FILL_BYTE,
+   [SPI_MSG_TAIL]    = SPI_6348_MSG_TAIL,
+   [SPI_RX_TAIL]     = SPI_6348_RX_TAIL,
+   [SPI_MSG_CTL]     = SPI_6348_MSG_CTL,
+   [SPI_MSG_DATA]    = SPI_6348_MSG_DATA,
+   [SPI_RX_DATA]     = SPI_6348_RX_DATA,
+};
+
+static const unsigned long bcm6358_spi_reg_offsets[] = {
+   [SPI_CMD]      = SPI_6358_CMD,
+   [SPI_INT_STATUS]  = SPI_6358_INT_STATUS,
+   [SPI_INT_MASK_ST] = SPI_6358_INT_MASK_ST,
+   [SPI_INT_MASK]    = SPI_6358_INT_MASK,
+   [SPI_ST]    = SPI_6358_ST,
+   [SPI_CLK_CFG]     = SPI_6358_CLK_CFG,
+   [SPI_FILL_BYTE]      = SPI_6358_FILL_BYTE,
+   [SPI_MSG_TAIL]    = SPI_6358_MSG_TAIL,
+   [SPI_RX_TAIL]     = SPI_6358_RX_TAIL,
+   [SPI_MSG_CTL]     = SPI_6358_MSG_CTL,
+   [SPI_MSG_DATA]    = SPI_6358_MSG_DATA,
+   [SPI_RX_DATA]     = SPI_6358_RX_DATA,
+};
+
+static void bcm_mpi_dev_data_init(bcm_mpi_dev_data_t *bs)
+{
+   memset(bs, 0, sizeof(*bs));
+   bs->num_chipselect = BCM63XX_SPI_MAX_CS;
+   if (BCMCPU_IS_6348()) {
+      bs->reg_offsets = bcm6348_spi_reg_offsets;
+      bs->fifo_size = SPI_6348_MSG_DATA_SIZE;
+      bs->msg_type_shift = SPI_6348_MSG_TYPE_SHIFT;
+      bs->msg_ctl_width = SPI_6348_MSG_CTL_WIDTH;
+   }
+   else {
+      bs->reg_offsets = bcm6358_spi_reg_offsets;
+      bs->fifo_size = SPI_6358_MSG_DATA_SIZE;
+      bs->msg_type_shift = SPI_6358_MSG_TYPE_SHIFT;
+      bs->msg_ctl_width = SPI_6358_MSG_CTL_WIDTH;
+   }
+}
 
 static inline u8 bcm_spi_readb(bcm_mpi_dev_data_t *bs,
             unsigned int offset)
 {
    u8 ret;
-   ret = bcm_readb(bs->regs + bcm63xx_spireg(offset));
+   ret = bcm_readb(bs->regs + bs->reg_offsets[offset]);
    dd_bcm_pr_debug("bcm_spi_readb(off=0x%lx) -> 0x%x\n", (unsigned long)(offset), (unsigned int)(ret));
    return (ret);
 }
@@ -119,7 +181,7 @@ static inline u16 bcm_spi_readw(bcm_mpi_dev_data_t *bs,
             unsigned int offset)
 {
    u16 ret;
-   ret = bcm_readw(bs->regs + bcm63xx_spireg(offset));
+   ret = bcm_readw(bs->regs + bs->reg_offsets[offset]);
    dd_bcm_pr_debug("bcm_spi_readw(off=0x%lx) -> 0x%x\n", (unsigned long)(offset), (unsigned int)(ret));
    return (ret);
 }
@@ -128,14 +190,14 @@ static inline void bcm_spi_writeb(bcm_mpi_dev_data_t *bs,
               u8 value, unsigned int offset)
 {
    dd_bcm_pr_debug("bcm_spi_writeb(val=0x%x, off=0x%lx)\n", (unsigned int)(value), (unsigned long)(offset));
-   bcm_writeb(value, bs->regs + bcm63xx_spireg(offset));
+   bcm_writeb(value, bs->regs + bs->reg_offsets[offset]);
 }
 
 static inline void bcm_spi_writew(bcm_mpi_dev_data_t *bs,
               u16 value, unsigned int offset)
 {
    dd_bcm_pr_debug("bcm_spi_writew(val=0x%x, off=0x%lx)\n", (unsigned int)(value), (unsigned long)(offset));
-   bcm_writew(value, bs->regs + bcm63xx_spireg(offset));
+   bcm_writew(value, bs->regs + bs->reg_offsets[offset]);
 }
 
 static const unsigned bcm63xx_spi_freq_table[SPI_CLK_MASK][2] = {
@@ -342,7 +404,6 @@ static bcm_mpi_dev_data_t bcm_mpi_dev_data = {
 static int bcm63xx_spi_probe(struct platform_device *pdev)
 {
    struct device *dev = &(pdev->dev);
-   struct bcm63xx_spi_pdata *pdata = pdev->dev.platform_data;
    int ret;
    struct resource *r;
    int irq;
@@ -351,13 +412,9 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    bcm_pr_debug("bcm63xx_spi_probe()\n");
 
    bs = &(bcm_mpi_dev_data);
-   memset(bs, 0, sizeof(*bs));
+   bcm_mpi_dev_data_init(bs);
    bs->ref_count = 1;
    bs->pdev = pdev;
-   bs->fifo_size = pdata->fifo_size;
-   bs->num_chipselect = pdata->num_chipselect;
-   bs->msg_type_shift = pdata->msg_type_shift;
-   bs->msg_ctl_width = pdata->msg_ctl_width;
 
    r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
    if (!r) {
@@ -376,7 +433,7 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    }
    bs->irq = irq;
 
-   bs->clk = clk_get(dev, "spi");
+   bs->clk = devm_clk_get(dev, "spi");
    if (IS_ERR(bs->clk)) {
       dev_err(dev, "no clock for device\n");
       ret = PTR_ERR(bs->clk);
@@ -397,8 +454,8 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
       ret = -ENOMEM;
       goto fail_io_remap;
    }
-   bs->tx_io = (u8 *)(bs->regs + bcm63xx_spireg(SPI_MSG_DATA));
-   bs->rx_io = (const u8 *)(bs->regs + bcm63xx_spireg(SPI_RX_DATA));
+   bs->tx_io = (u8 *)(bs->regs + bs->reg_offsets[SPI_MSG_DATA]);
+   bs->rx_io = (const u8 *)(bs->regs + bs->reg_offsets[SPI_RX_DATA]);
 
    ret = devm_request_irq(&(pdev->dev), irq, bcm63xx_spi_interrupt, 0,
                      pdev->name, bs);
