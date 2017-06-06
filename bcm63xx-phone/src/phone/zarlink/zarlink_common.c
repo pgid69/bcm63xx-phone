@@ -1031,8 +1031,8 @@ static inline bool phone_dev_zarlink_is_tone_valid(
    bcm_phone_line_tone_t tone_index)
 {
    bool ret = true;
-   dd_bcm_pr_debug("phone_dev_zarlink_is_tone_valid(status=%d, mode=%d, tone=%d)\n",
-      (int)(status), (int)(mode), (int)(tone));
+   dd_bcm_pr_debug("phone_dev_zarlink_is_tone_valid(status=%d, mode=%d, tone_index=%d)\n",
+      (int)(status), (int)(mode), (int)(tone_index));
    if (BCMPH_TONE_NONE != tone_index) {
       if (BCMPH_STATUS_OFF_HOOK != status) {
          ret = false;

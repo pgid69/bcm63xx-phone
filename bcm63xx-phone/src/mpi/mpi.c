@@ -284,8 +284,8 @@ static int bcm_mpi_rw_buf(bcm_mpi_t *t, u8 *buf, u8 buf_len,
    unsigned int timeout;
    u8 rx_tail;
 
-   dd_bcm_pr_debug("bcm_mpi_rw_buf(buf_len=%u, do_tx=%d, do_rx=%d, prepend_len=%u)\n",
-      (unsigned int)(buf_len), (int)(do_tx), (int)(do_rx), (unsigned int)(prepend_len));
+   dd_bcm_pr_debug("bcm_mpi_rw_buf(buf_len=%u, do_tx=%d, do_rx=%d, prepend_buf_len=%u)\n",
+      (unsigned int)(buf_len), (int)(do_tx), (int)(do_rx), (unsigned int)(prepend_buf_len));
 
    /* Disable the CMD_DONE interrupt */
    bcm_spi_writeb(bs, 0, SPI_INT_MASK);

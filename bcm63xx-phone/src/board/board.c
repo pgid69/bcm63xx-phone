@@ -374,8 +374,8 @@ static phone_desc_t hw553_phone_desc = {
             .cs_off_time = 4,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88221 */
-         },
 #endif // !BCMPH_USE_SPI_DRIVER
+         },
          .line_count = 2,
          .lines = {
             {
@@ -511,8 +511,8 @@ static phone_desc_t hw556_phone_desc = {
             .cs_off_time = 4,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88266 */
-         },
 #endif // !BCMPH_USE_SPI_DRIVER
+         },
          .line_count = 2,
          .lines = {
             {
@@ -652,8 +652,8 @@ static phone_desc_t a226m_phone_desc = {
             .cs_off_time = 4,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88266 */
-         },
 #endif // !BCMPH_USE_SPI_DRIVER
+         },
          .line_count = 2,
          .lines = {
             {
