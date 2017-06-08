@@ -72,9 +72,9 @@ static void bcm_mpi_enable_extra_CSs(void)
       bcm_gpio_writel(val, GPIO_MODE_REG);
       /* Enable SPI Slave Select as Output Pins */
       /* GPIO 28 is SS2, GPIO 29 is SS3, GPIO 30 is SS4, GPIO 31 is SS5*/
-      val = bcm_gpio_readl(GPIO_CTL_HI_REG);
+      val = bcm_gpio_readl(GPIO_CTL_LO_REG);
       val |= (GPIO_MODE_6368_SPI_SSN2 | GPIO_MODE_6368_SPI_SSN3 | GPIO_MODE_6368_SPI_SSN4 | GPIO_MODE_6368_SPI_SSN5);
-      bcm_gpio_writel(val, GPIO_CTL_HI_REG);
+      bcm_gpio_writel(val, GPIO_CTL_LO_REG);
    }
 }
 
