@@ -5,17 +5,16 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __PHONES_H__
 #define __PHONES_H__
 
 #include "config.h"
 
-#ifdef __KERNEL__
-#include <linux/mutex.h>
-#include <linux/spinlock.h>
-#include <linux/wait.h>
-#include <linux/workqueue.h>
-#endif // __KERNEL__
+#include <extern/linux/mutex.h>
+#include <extern/linux/spinlock.h>
+#include <extern/linux/wait.h>
+#include <extern/linux/workqueue.h>
 
 #include <phone.h>
 #include <timer.h>
@@ -46,13 +45,16 @@ typedef struct {
       // Status of the line, reset by call to get_line_states.
       bcm_phone_line_state_t line_state;
       // Bits field to tell if codec or mode field must be changed
-      // New value are in 'new_mode' and 'new_codec' below
+      // New value are in 'new_mode' and 'new_codec'... below
       unsigned int change_status;
       bcm_phone_codec_t new_codec;
+      bool new_rev_polarity;
       bcm_phone_line_mode_t new_mode;
       __u32 new_tone;
       // A copy of line_state.codec but that we can access without getting the spinlock
       atomic_t current_codec;
+      // A copy of line_state.rev_polarity but that we can access without getting the spinlock
+      atomic_t current_rev_polarity;
       // A copy of line_state.mode but that we can access without getting the spinlock
       atomic_t current_mode;
       // A copy of line_state.tone but that we can access without getting the spinlock
@@ -63,18 +65,23 @@ typedef struct {
 typedef struct bcm_phones {
    // Board description
    const board_desc_t *board_desc;
-   // Wait queue used to block processes waiting for an event occuring in
-   // timer function
-   bcm_wait_queue_t eventq;
-   // Timer used to periodically update the state of the phone lines
-   bcm_timer_t timer;
-   // Work and workqueue scheduled by the timer
-   struct work_struct work;
-   struct workqueue_struct *workqueue;
-   // Callback called at the end of the timer function
+   // Periodic timer used to schedule the periodic_work
+   bcm_periodic_timer_t *periodic_timer;
+   // Workqueue used to execute periodic_work
+   struct workqueue_struct *wq;
+   // Periodic work used to update line state...
+   bcm_periodic_work_t periodic_work;
+   // Callback called at the end of the periodic work
    void (*timer_cb)(struct bcm_phones *t);
-   // Lock used to arbitrate access to shared data
-   spinlock_t lock;
+#ifdef BCMPH_EXPORT_DEV_FILE
+   struct {
+      // Wait queue used to block processes waiting for an event occuring in
+      // periodic_work
+      bcm_wait_queue_t eventq;
+      // Lock used to arbitrate access to shared data
+      spinlock_t lock;
+   } dev;
+#endif /* BCMPH_EXPORT_DEV_FILE */
    // Phone devices
    size_t phone_dev_count;
    struct {
@@ -88,7 +95,9 @@ typedef struct bcm_phones {
    bcm_phone_mgr_line_t phone_lines[BCMPH_MAX_LINES];
 } bcm_phone_mgr_t;
 
-extern int bcm_phone_mgr_init(bcm_phone_mgr_t *t, const board_desc_t *board_desc,
+extern int bcm_phone_mgr_init(bcm_phone_mgr_t *t,
+   const board_desc_t *board_desc,
+   bcm_periodic_timer_t *periodic_timer, struct workqueue_struct *wq,
    void (*timer_cb)(struct bcm_phones *t));
 
 extern void bcm_phone_mgr_deinit(bcm_phone_mgr_t *t);
@@ -98,10 +107,12 @@ static inline size_t bcm_phone_mgr_get_line_count(const bcm_phone_mgr_t *t)
    return (t->phone_line_count);
 }
 
+#ifdef BCMPH_EXPORT_DEV_FILE
 static inline bcm_wait_queue_t *bcm_phone_mgr_get_eventq(bcm_phone_mgr_t *t)
 {
-   return (&(t->eventq));
+   return (&(t->dev.eventq));
 }
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
 extern int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
    const phone_line_params_t *lps, size_t lps_count);
@@ -115,7 +126,7 @@ static inline bool bcm_phone_mgr_line_is_enabled(const bcm_phone_mgr_t *t, size_
    bcm_assert(line < t->phone_line_count);
 
    ret = phone_line_is_enabled(t->phone_lines[line].line);
-   dd_bcm_pr_debug("bcm_phone_mgr_line_is_enabled(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
@@ -126,7 +137,7 @@ extern bool bcm_phone_mgr_line_supports_codec(const bcm_phone_mgr_t *t, size_t l
 extern bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t, size_t line,
    bcm_phone_codec_t old_codec, bcm_phone_codec_t new_codec);
 
-static inline bcm_phone_codec_t bcm_phone_mgr_get_current_codec(const bcm_phone_mgr_t *t, size_t line)
+static inline bcm_phone_codec_t bcm_phone_mgr_get_current_codec(bcm_phone_mgr_t *t, size_t line)
 {
    bcm_phone_codec_t ret;
 
@@ -134,11 +145,23 @@ static inline bcm_phone_codec_t bcm_phone_mgr_get_current_codec(const bcm_phone_
 
    ret = ((bcm_phone_codec_t)(atomic_read(&(t->phone_lines[line].shared.current_codec))));
 
-   dd_bcm_pr_debug("bcm_phone_mgr_get_current_codec(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
-static inline bcm_phone_line_mode_t bcm_phone_mgr_get_current_mode(const bcm_phone_mgr_t *t, size_t line)
+static inline bool bcm_phone_mgr_get_current_rev_polarity(bcm_phone_mgr_t *t, size_t line)
+{
+   bool ret;
+
+   bcm_assert(line < t->phone_line_count);
+
+   ret = ((bcm_phone_line_mode_t)(atomic_read(&(t->phone_lines[line].shared.current_rev_polarity))));
+
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
+   return (ret);
+}
+
+static inline bcm_phone_line_mode_t bcm_phone_mgr_get_current_mode(bcm_phone_mgr_t *t, size_t line)
 {
    bcm_phone_line_mode_t ret;
 
@@ -146,11 +169,11 @@ static inline bcm_phone_line_mode_t bcm_phone_mgr_get_current_mode(const bcm_pho
 
    ret = ((bcm_phone_line_mode_t)(atomic_read(&(t->phone_lines[line].shared.current_mode))));
 
-   dd_bcm_pr_debug("bcm_phone_mgr_get_current_mode(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
-static inline bcm_phone_line_tone_t bcm_phone_mgr_get_current_tone(const bcm_phone_mgr_t *t, size_t line)
+static inline bcm_phone_line_tone_t bcm_phone_mgr_get_current_tone(bcm_phone_mgr_t *t, size_t line)
 {
    bcm_phone_line_tone_t ret;
 
@@ -158,30 +181,33 @@ static inline bcm_phone_line_tone_t bcm_phone_mgr_get_current_tone(const bcm_pho
 
    ret = ((bcm_phone_line_tone_t)(atomic_read(&(t->phone_lines[line].shared.current_tone))));
 
-   dd_bcm_pr_debug("bcm_phone_mgr_get_current_tone(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
-static inline bool bcm_phone_mgr_line_rx_use_pcm(const bcm_phone_mgr_t *t, size_t line)
+static inline bool bcm_phone_mgr_line_rx_use_pcm(bcm_phone_mgr_t *t, size_t line)
 {
    bool ret;
+   bcm_phone_line_mode_t mode;
 
    bcm_assert(line < t->phone_line_count);
 
-   if (BCMPH_MODE_OFF_TALKING == bcm_phone_mgr_get_current_mode(t, line)) {
+   mode = bcm_phone_mgr_get_current_mode(t, line);
+   if (BCMPH_MODE_OFF_TALKING == mode) {
       bcm_assert(phone_line_is_enabled(t->phone_lines[line].line));
       ret = true;
    }
    else {
       ret = false;
    }
-   dd_bcm_pr_debug("bcm_phone_mgr_line_use_pcm(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
-static inline bool bcm_phone_mgr_line_tx_use_pcm(const bcm_phone_mgr_t *t, size_t line)
+static inline bool bcm_phone_mgr_line_tx_use_pcm(bcm_phone_mgr_t *t, size_t line)
 {
    bool ret;
+   bcm_phone_line_mode_t mode;
 
    bcm_assert(line < t->phone_line_count);
 
@@ -189,7 +215,8 @@ static inline bool bcm_phone_mgr_line_tx_use_pcm(const bcm_phone_mgr_t *t, size_
     There's an amibiguity when generating tone : voice can't be heard
     but do we have to suspend sending voice data on the PCM bus ?
    */
-   if ((BCMPH_MODE_OFF_TALKING == bcm_phone_mgr_get_current_mode(t, line))
+   mode = bcm_phone_mgr_get_current_mode(t, line);
+   if ((BCMPH_MODE_OFF_TALKING == mode) || (BCMPH_MODE_ON_TALKING == mode)
        /* && (BCMPH_TONE_NONE == bcm_phone_mgr_get_current_tone(t, line)) */) {
       bcm_assert(phone_line_is_enabled(t->phone_lines[line].line));
       ret = true;
@@ -197,7 +224,7 @@ static inline bool bcm_phone_mgr_line_tx_use_pcm(const bcm_phone_mgr_t *t, size_
    else {
       ret = false;
    }
-   dd_bcm_pr_debug("bcm_phone_mgr_line_use_pcm(line=%lu) => %d\n", (unsigned long)(line), (int)(ret));
+   dd_bcm_pr_debug("%s(line=%lu) => %d\n", __func__, (unsigned long)(line), (int)(ret));
    return (ret);
 }
 
@@ -207,7 +234,9 @@ static inline bool bcm_phone_mgr_line_has_change_pending(bcm_phone_mgr_t *t, siz
 
    bcm_assert(line < t->phone_line_count);
 
-   spin_lock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
    // When timer is stopped, change_status is reset to NO_CHANGED_ASKED
    // so no need to test that timer is active
    if (NO_CHANGE_ASKED == t->phone_lines[line].shared.change_status) {
@@ -216,7 +245,9 @@ static inline bool bcm_phone_mgr_line_has_change_pending(bcm_phone_mgr_t *t, siz
    else {
       ret = false;
    }
-   spin_unlock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   spin_unlock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
    return (ret);
 }
@@ -231,12 +262,31 @@ extern int bcm_phone_mgr_set_line_state(bcm_phone_mgr_t *t,
 
 extern int bcm_phone_mgr_set_line_codec(bcm_phone_mgr_t *t, size_t line,
    bcm_phone_codec_t codec, bcm_phone_line_mode_t mode,
-   __u32 tone, int wait, bcmph_mutex_t *lock);
+   int reverse_polarity, __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   );
+
+extern int bcm_phone_mgr_set_line_rev_polarity(bcm_phone_mgr_t *t, size_t line,
+   bool rev_polarity
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   );
 
 extern int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
-   bcm_phone_line_mode_t mode, __u32 tone, int wait, bcmph_mutex_t *lock);
+   bcm_phone_line_mode_t mode, int reverse_polarity, __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   );
 
 extern int bcm_phone_mgr_set_line_tone(bcm_phone_mgr_t *t, size_t line,
-   __u32 tone, int wait, bcmph_mutex_t *lock);
+   __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   );
 
 #endif // __PHONES_H__

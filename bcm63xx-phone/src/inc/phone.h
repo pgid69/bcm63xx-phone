@@ -5,14 +5,14 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __PHONE_H__
 #define __PHONE_H__
 
 #include "config.h"
 
-#ifdef __KERNEL__
-#include <linux/atomic.h>
-#endif // __KERNEL__
+#include <extern/linux/atomic.h>
+#include <extern/linux/stddef.h>
 
 #include <vp_api_types.h>
 
@@ -32,6 +32,8 @@ typedef struct {
    bool line_state_changed;
    // New codec asked
    bcm_phone_codec_t new_codec;
+   // New polarity
+   bool new_rev_polarity;
    // New mode asked
    bcm_phone_line_mode_t new_mode;
    // New tone asked (eventually with times on and off)
@@ -40,39 +42,40 @@ typedef struct {
 
 static inline void phone_line_init(phone_line_t *t)
 {
-   d_bcm_pr_debug("phone_line_init()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    t->enable = false;
    bcm_phone_line_state_init(&(t->line_state));
    t->line_state_changed = false;
    t->new_codec = t->line_state.codec;
+   t->new_rev_polarity = t->line_state.rev_polarity;
    t->new_mode = t->line_state.mode;
    t->new_tone = bcm_phone_line_tone_code_index(t->line_state.tone);
 }
 
 static inline void phone_line_deinit(phone_line_t *t)
 {
-   d_bcm_pr_debug("phone_line_deinit()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    t->enable = false;
    t->new_tone = bcm_phone_line_tone_code_index(t->line_state.tone);
    t->new_mode = t->line_state.mode;
+   t->new_rev_polarity = t->line_state.rev_polarity;
    t->new_codec = t->line_state.codec;
    t->line_state_changed = false;
    bcm_phone_line_state_deinit(&(t->line_state));
 }
 
-static inline void phone_line_enable(phone_line_t *t, bcm_phone_codec_t codec, __u8 timeslot)
+static inline void phone_line_enable(phone_line_t *t,
+   bcm_phone_codec_t codec, __u8 timeslot,
+   bcm_phone_line_status_t initial_status,
+   bcm_phone_line_mode_t initial_mode)
 {
-   d_bcm_pr_debug("phone_line_enable(codec=%d, timeslot=%u)\n",
+   d_bcm_pr_debug("%s(codec=%d, timeslot=%u)\n", __func__,
       (int)(codec), (unsigned int)(timeslot));
    t->timeslot = timeslot;
-   bcm_phone_line_state_reset(&(t->line_state),
-#ifndef BCMPH_TEST_PCM
-      BCMPH_STATUS_DISCONNECTED,
-#else // BCMPH_TEST_PCM
-      BCMPH_STATUS_OFF_HOOK,
-#endif // BCMPH_TEST_PCM
-      codec, BCMPH_MODE_IDLE, BCMPH_TONE_NONE);
+   bcm_phone_line_state_reset(&(t->line_state), initial_status, codec,
+      false, initial_mode, BCMPH_TONE_NONE);
    t->new_codec = t->line_state.codec;
+   t->new_rev_polarity = t->line_state.rev_polarity;
    t->new_mode = t->line_state.mode;
    t->new_tone = bcm_phone_line_tone_code_index(t->line_state.tone);
    t->line_state_changed = false;
@@ -81,12 +84,13 @@ static inline void phone_line_enable(phone_line_t *t, bcm_phone_codec_t codec, _
 
 static inline void phone_line_disable(phone_line_t *t)
 {
-   d_bcm_pr_debug("phone_line_disable()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    t->enable = false;
-   bcm_phone_line_state_reset(&(t->line_state), BCMPH_STATUS_DISCONNECTED,
-      BCMPH_CODEC_LINEAR, BCMPH_MODE_IDLE, BCMPH_TONE_NONE);
+   bcm_phone_line_state_reset(&(t->line_state), BCMPH_STATUS_UNSPECIFIED,
+      BCMPH_CODEC_LINEAR, false, BCMPH_MODE_DISCONNECT, BCMPH_TONE_NONE);
    t->new_codec = t->line_state.codec;
    t->new_mode = t->line_state.mode;
+   t->new_rev_polarity = t->line_state.rev_polarity;
    t->new_tone = bcm_phone_line_tone_code_index(t->line_state.tone);
    t->line_state_changed = false;
 }
@@ -94,19 +98,19 @@ static inline void phone_line_disable(phone_line_t *t)
 static inline bool phone_line_is_enabled(const phone_line_t *t)
 {
    bool ret = t->enable;
-   dd_bcm_pr_debug("phone_line_is_enabled() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
 
 static inline void phone_line_line_state_changed(phone_line_t *t)
 {
-   dd_bcm_pr_debug("phone_line_line_state_changed()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
    t->line_state_changed = true;
 }
 
 static inline void phone_line_move_line_state(phone_line_t *t, bcm_phone_line_state_t *line_state)
 {
-   dd_bcm_pr_debug("phone_line_move_line_state()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
    bcm_phone_line_state_move(&(t->line_state), line_state);
    t->line_state_changed = false;
 }
@@ -149,74 +153,74 @@ extern void phone_device_deinit(phone_device_t *t);
 
 static inline void phone_device_start(phone_device_t *t, bcmph_country_t country)
 {
-   d_bcm_pr_debug("phone_device_start(country=%d)\n", (int)(country));
+   d_bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
    t->country = country;
    t->started = true;
 }
 
 static inline void phone_device_stop(phone_device_t *t)
 {
-   d_bcm_pr_debug("phone_device_stop()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    t->started = false;
 }
 
 static inline bool phone_device_is_started(const phone_device_t *t)
 {
    bool ret = t->started;
-   dd_bcm_pr_debug("phone_device_is_started() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
 
 static inline bcmph_country_t phone_device_get_country(const phone_device_t *t)
 {
    bcmph_country_t ret = t->country;
-   d_bcm_pr_debug("phone_device_get_country() -> %d\n", (int)(ret));
+   d_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
 
 static inline const phone_desc_device_t *phone_device_get_desc(const phone_device_t *t)
 {
-   dd_bcm_pr_debug("phone_device_get_desc()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
    return (t->desc);
 }
 
 static inline __u8 phone_device_get_tick_period(const phone_device_t *t)
 {
-   dd_bcm_pr_debug("phone_device_get_tick_period()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
    return (t->tick_period);
 }
 
 static inline size_t phone_device_get_line_count(const phone_device_t *t)
 {
    size_t ret = t->desc->line_count;
-   dd_bcm_pr_debug("phone_device_get_line_count() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 static inline const phone_desc_line_t *phone_device_get_line_desc(const phone_device_t *t, size_t index)
 {
-   dd_bcm_pr_debug("phone_device_get_line_desc(index=%lu)\n", (unsigned long)(index));
+   dd_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert(index < t->desc->line_count);
    return (&(t->desc->lines[index]));
 }
 
 static inline phone_line_t *phone_device_get_line(const phone_device_t *t, size_t index)
 {
-   dd_bcm_pr_debug("phone_device_get_line(index=%lu)\n", (unsigned long)(index));
+   dd_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert((index < t->desc->line_count) && (index < ARRAY_SIZE(t->lines)));
    return (t->lines[index]);
 }
 
 static inline void phone_device_init_line(phone_device_t *t, size_t index, phone_line_t *vl)
 {
-   dd_bcm_pr_debug("phone_device_init_line(index=%lu)\n", (unsigned long)(index));
+   dd_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert((index < t->desc->line_count) && (index < ARRAY_SIZE(t->lines)));
    t->lines[index] = vl;
 }
 
 static inline void phone_device_deinit_line(phone_device_t *t, size_t index)
 {
-   dd_bcm_pr_debug("phone_device_deinit_line(index=%lu)\n", (unsigned long)(index));
+   dd_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert((index < t->desc->line_count) && (index < ARRAY_SIZE(t->lines)));
    t->lines[index] = NULL;
 }

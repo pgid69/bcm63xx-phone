@@ -5,17 +5,27 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __BCM63XX_LINE_STATE_H__
 #define __BCM63XX_LINE_STATE_H__
 
 #include <linux/types.h>
 #ifdef __KERNEL__
-#include <asm/uaccess.h>
+# include <linux/uaccess.h>
 #else /* !__KERNEL__ */
-#include <string.h>
+# include <stdbool.h>
+# include <string.h>
 #endif /* !__KERNEL__ */
 
 #include "bcm63xx_log.h"
+
+typedef enum {
+   BCMPH_STATUS_UNSPECIFIED = 0,
+   BCMPH_STATUS_ON_HOOK = 1,
+   BCMPH_STATUS_OFF_HOOK = 2,
+   /* Must be the last constant of the enum */
+   BCMPH_MAX_STATUS,
+} bcm_phone_line_status_t;
 
 typedef enum {
    BCMPH_CODEC_UNSPECIFIED = 0,
@@ -30,22 +40,17 @@ typedef enum {
 } bcm_phone_codec_t;
 
 typedef enum {
-   BCMPH_STATUS_UNSPECIFIED = 0,
-   BCMPH_STATUS_DISCONNECTED = 1,
-   BCMPH_STATUS_ON_HOOK = 2,
-   BCMPH_STATUS_OFF_HOOK = 3,
-   /* Must be the last constant of the enum */
-   BCMPH_MAX_STATUS,
-} bcm_phone_line_status_t;
-
-typedef enum {
    BCMPH_MODE_UNSPECIFIED = 0,
+   /* Phone is disconnected */
+   BCMPH_MODE_DISCONNECT = 1,
    /* Phone does nothing */
-   BCMPH_MODE_IDLE = 1,
+   BCMPH_MODE_IDLE = 2,
    /* Phone is on hook and ringing */
-   BCMPH_MODE_ON_RINGING = 2,
+   BCMPH_MODE_ON_RINGING = 3,
+   /* Phone is on hook and is sending and receiving voice */
+   BCMPH_MODE_ON_TALKING = 4,
    /* Phone is off hook and is sending and receiving voice */
-   BCMPH_MODE_OFF_TALKING = 3,
+   BCMPH_MODE_OFF_TALKING = 5,
    /* Must be the last constant of the enum */
    BCMPH_MAX_MODES,
 } bcm_phone_line_mode_t;
@@ -106,7 +111,7 @@ typedef enum {
 static inline __u32 bcm_phone_line_tone_code_index(bcm_phone_line_tone_t index)
 {
    __u32 ret = (((__u32)(index)) << BCMPH_TONE_INDEX_SHIFT);
-   d_bcm_pr_debug("bcm_phone_line_tone_code_index(index=%d) -> %lu\n",
+   dd_bcm_pr_debug("%s(index=%d) -> %lu\n", __func__,
       (int)(index), (unsigned long)(ret));
    bcm_assert(0 == (ret & (~(BCMPH_TONE_INDEX_MASK))));
    return (ret);
@@ -124,7 +129,7 @@ static inline __u32 bcm_phone_line_tone_code(
    tmp = (((__u32)(off_time)) << BCMPH_TONE_OFF_TIME_SHIFT);
    bcm_assert(0 == (tmp & (~(BCMPH_TONE_OFF_TIME_MASK))));
    ret |= tmp;
-   d_bcm_pr_debug("bcm_phone_line_tone_code(index=%d, on_time=%u, off_time=%u) -> %lu\n",
+   dd_bcm_pr_debug("%s(index=%d, on_time=%u, off_time=%u) -> %lu\n", __func__,
       (int)(index), (unsigned int)(on_time), (unsigned int)(off_time),
       (unsigned long)(ret));
    return (ret);
@@ -133,31 +138,25 @@ static inline __u32 bcm_phone_line_tone_code(
 static inline bcm_phone_line_tone_t bcm_phone_line_tone_decode_index(__u32 v)
 {
    bcm_phone_line_tone_t ret = (bcm_phone_line_tone_t)((v & BCMPH_TONE_INDEX_MASK) >> BCMPH_TONE_INDEX_SHIFT);
-   d_bcm_pr_debug("bcm_phone_line_tone_decode_index(v=%lu) -> %d\n",
-      (unsigned long)(v), (int)(ret));
+   dd_bcm_pr_debug("%s(v=%lu) -> %d\n", __func__, (unsigned long)(v), (int)(ret));
    return (ret);
 }
 
 static inline __u16 bcm_phone_line_tone_decode_on_time(__u32 v)
 {
    __u16 ret = (__u16)((v & BCMPH_TONE_ON_TIME_MASK) >> BCMPH_TONE_ON_TIME_SHIFT);
-   d_bcm_pr_debug("bcm_phone_line_tone_decode_on_time(v=%lu) -> %u\n",
-      (unsigned long)(v), (unsigned int)(ret));
+   dd_bcm_pr_debug("%s(v=%lu) -> %u\n", __func__, (unsigned long)(v), (unsigned int)(ret));
    return (ret);
 }
 
 static inline __u16 bcm_phone_line_tone_decode_off_time(__u32 v)
 {
    __u16 ret = (__u16)((v & BCMPH_TONE_OFF_TIME_MASK) >> BCMPH_TONE_OFF_TIME_SHIFT);
-   d_bcm_pr_debug("bcm_phone_line_tone_decode_off_time(v=%lu) -> %u\n",
-      (unsigned long)(v), (unsigned int)(ret));
+   dd_bcm_pr_debug("%s(v=%lu) -> %u\n", __func__, (unsigned long)(v), (unsigned int)(ret));
    return (ret);
 }
 
 typedef struct {
-   /* The current codec */
-   bcm_phone_codec_t codec;
-   __u16 codec_change_count;
    /* The current status of the line */
    bcm_phone_line_status_t status;
    /*
@@ -166,6 +165,16 @@ typedef struct {
     A change in the status is detected if status_change_count > 0
    */
    __u16 status_change_count;
+   /* The current codec */
+   bcm_phone_codec_t codec;
+   __u16 codec_change_count;
+   /* The current state of the flag that asks to reverse polarity */
+   bool rev_polarity;
+   /*
+    The number of change of the flag rev_polarity since last call of
+    BCMPH_IOCTL_GET_LINE_STATE.
+   */
+   __u16 rev_polarity_change_count;
    /* The current mode of the line */
    bcm_phone_line_mode_t mode;
    /*
@@ -194,16 +203,22 @@ typedef struct {
 
 extern void bcm_phone_line_state_reset(bcm_phone_line_state_t *t,
    bcm_phone_line_status_t status, bcm_phone_codec_t codec,
-   bcm_phone_line_mode_t mode, bcm_phone_line_tone_t tone);
+   bool rev_polarity, bcm_phone_line_mode_t mode,
+   bcm_phone_line_tone_t tone);
+
+static inline void bcm_phone_line_state_reset_status_change_count(bcm_phone_line_state_t *t)
+{
+   t->status_change_count = 0;
+}
 
 static inline void bcm_phone_line_state_reset_codec_change_count(bcm_phone_line_state_t *t)
 {
    t->codec_change_count = 0;
 }
 
-static inline void bcm_phone_line_state_reset_status_change_count(bcm_phone_line_state_t *t)
+static inline void bcm_phone_line_state_reset_rev_polarity_change_count(bcm_phone_line_state_t *t)
 {
-   t->status_change_count = 0;
+   t->rev_polarity_change_count = 0;
 }
 
 static inline void bcm_phone_line_state_reset_mode_change_count(bcm_phone_line_state_t *t)
@@ -250,30 +265,33 @@ static inline void bcm_phone_line_state_reset_digits(bcm_phone_line_state_t *t)
 
 static inline void bcm_phone_line_state_reset_change_counts(bcm_phone_line_state_t *t)
 {
-   bcm_phone_line_state_reset_codec_change_count(t);
    bcm_phone_line_state_reset_status_change_count(t);
+   bcm_phone_line_state_reset_codec_change_count(t);
+   bcm_phone_line_state_reset_rev_polarity_change_count(t);
    bcm_phone_line_state_reset_mode_change_count(t);
    bcm_phone_line_state_reset_tone_change_count(t);
 }
 
 static inline void bcm_phone_line_state_init(bcm_phone_line_state_t *t)
 {
-   bcm_phone_line_state_reset(t, BCMPH_STATUS_DISCONNECTED,
-      BCMPH_CODEC_LINEAR, BCMPH_MODE_IDLE, BCMPH_TONE_NONE);
+   bcm_phone_line_state_reset(t, BCMPH_STATUS_UNSPECIFIED,
+      BCMPH_CODEC_LINEAR, false, BCMPH_MODE_DISCONNECT, BCMPH_TONE_NONE);
 }
 
 static inline void bcm_phone_line_state_deinit(bcm_phone_line_state_t *t)
 {
-   bcm_phone_line_state_reset(t, BCMPH_STATUS_DISCONNECTED,
-      BCMPH_CODEC_LINEAR, BCMPH_MODE_IDLE, BCMPH_TONE_NONE);
+   bcm_phone_line_state_reset(t, BCMPH_STATUS_UNSPECIFIED,
+      BCMPH_CODEC_LINEAR, false, BCMPH_MODE_DISCONNECT, BCMPH_TONE_NONE);
 }
 
 extern void bcm_phone_line_state_move(bcm_phone_line_state_t *t, bcm_phone_line_state_t *dest);
 
 static inline int bcm_phone_line_state_has_changes(const bcm_phone_line_state_t *t)
 {
-   if ((t->codec_change_count) || (t->status_change_count) || (t->mode_change_count)
-       || (t->tone_change_count) || (t->digits_count) || (t->flash_count)) {
+   if ((t->status_change_count) || (t->codec_change_count)
+       || (t->rev_polarity_change_count) || (t->mode_change_count)
+       || (t->tone_change_count) || (t->digits_count)
+       || (t->flash_count)) {
       return (1);
    }
    else {

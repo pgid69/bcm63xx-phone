@@ -11,7 +11,6 @@ include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=bcm63xx-phone-test
 PKG_RELEASE:=$(LINUX_VERSION)
-
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
@@ -39,7 +38,7 @@ endef
 
 define Build/Compile
 	cd $(PKG_BUILD_DIR) && rm -f *.o *.a
-	cd $(PKG_BUILD_DIR) && $(TARGET_CC) -I$(BUILD_DIR)/bcm63xx-phone/inc \
+	cd $(PKG_BUILD_DIR) && $(TARGET_CC) -I$(KERNEL_BUILD_DIR)/bcm63xx-phone/inc \
 		$(TARGET_CFLAGS) -o $(PKG_BUILD_DIR)/bcm63xx-phone-test main.c
 endef
 

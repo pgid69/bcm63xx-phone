@@ -5,13 +5,11 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
 
-#ifdef __KERNEL__
-#include <linux/delay.h>
-#else // !__KERNEL__
-#include <stdlib.h>
-#endif // !__KERNEL__
+#include <extern/linux/delay.h>
+#include <extern/linux/kernel.h>
 
 #include <vp_api_int.h>
 #include "zarlink_common.h"
@@ -38,7 +36,7 @@ static char zarlink_convert_digit_type_to_char(VpDigitType digit)
 {
    char ret = 0;
 
-   dd_bcm_pr_debug("zarlink_convert_digit_type_to_char(digit=%d)\n", (int)(digit));
+   dd_bcm_pr_debug("%s(digit=%d)\n", __func__, (int)(digit));
    if (VP_DIG_NONE != digit) {
       switch (digit) {
          case VP_DIG_ZERO: {
@@ -84,7 +82,7 @@ static VpDigitType zarlink_convert_tone_to_digit_type(bcm_phone_line_tone_t tone
 {
    VpDigitType ret = VP_DIG_NONE;
 
-   dd_bcm_pr_debug("zarlink_convert_tone_to_digit_type(tone=%d)\n", (int)(tone));
+   dd_bcm_pr_debug("%s(tone=%d)\n", __func__, (int)(tone));
    switch (tone) {
       case BCMPH_TONE_DTMF_0: {
          ret = VP_DIG_ZERO;
@@ -161,7 +159,7 @@ static VpDigitType zarlink_convert_tone_to_digit_type(bcm_phone_line_tone_t tone
 
 static void zarlink_reset(uint16 gpio_num)
 {
-   bcm_pr_debug("zarlink_reset(gpio_num=0x%x)\n", (unsigned int)(gpio_num));
+   bcm_pr_debug("%s(gpio_num=0x%x)\n", __func__, (unsigned int)(gpio_num));
    if (GPIO_IS_INVALID != gpio_num) {
       board_set_gpio(gpio_num, 0);
       msleep(10);
@@ -180,7 +178,7 @@ static void zarlink_reset(uint16 gpio_num)
 
 static void zarlink_shutdown(uint16 gpio_num)
 {
-   bcm_pr_debug("zarlink_shutdown(gpio_num=0x%x)\n", (unsigned int)(gpio_num));
+   bcm_pr_debug("%s(gpio_num=0x%x)\n", __func__, (unsigned int)(gpio_num));
    if (GPIO_IS_INVALID != gpio_num) {
       board_set_gpio(gpio_num, 1);
    }
@@ -190,7 +188,7 @@ static VpOptionCodecType zarlink_get_codec_type(bcm_phone_codec_t codec)
 {
    VpOptionCodecType codec_type = VP_OPTION_LINEAR;
 
-   d_bcm_pr_debug("zarlink_get_codec_type(codec=%d)\n", (int)(codec));
+   d_bcm_pr_debug("%s(codec=%d)\n", __func__, (int)(codec));
    switch (codec)
    {
       case BCMPH_CODEC_ALAW: {
@@ -240,7 +238,7 @@ static void zarlink_mpi_pr_regs(bcm_mpi_t *mpi,
    __u8 data[32];
    char message[256];
 
-   d_bcm_pr_debug("zarlink_mpi_pr_regs()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    bcm_assert((NULL != mpi) && (NULL != cmds) && (cmd_len > 0));
    i = 0;
    if (line_id >= 0) {
@@ -271,7 +269,7 @@ static VpStatusType zarlink_set_timeslot_and_codec(VpLineCtxType *line_ctx, VpOp
    VpStatusType status;
    VpOptionTimeslotType timeslot;
 
-   bcm_pr_debug("zarlink_set_timeslot_and_codec(codec_type=%u, ts=%d)\n", (unsigned int)(codec_type), (int)(ts));
+   bcm_pr_debug("%s(codec_type=%u, ts=%d)\n", __func__, (unsigned int)(codec_type), (int)(ts));
    bcm_assert(NULL != line_ctx);
    timeslot.tx = ts;
    timeslot.rx = ts;
@@ -314,7 +312,7 @@ static bool zarlink_wait_for_event(VpDevCtxType *dev_ctx, __u8 tick_period,
    VpStatusType status;
    bool event_pending = FALSE;
 
-   bcm_pr_debug("zarlink_wait_for_event(evt_category=%d, evt_id=%u)\n",
+   bcm_pr_debug("%s(evt_category=%d, evt_id=%u)\n", __func__,
       (int)(evt_category), (unsigned int)(evt_id));
    bcm_assert(NULL != dev_ctx);
    i = 0;
@@ -372,7 +370,7 @@ static bool zarlink_wait_for_event(VpDevCtxType *dev_ctx, __u8 tick_period,
 
 static inline const VpProfileDataType *zarlink_profiles_get_dev(const zarlink_profiles_t *t)
 {
-   d_bcm_pr_debug("zarlink_profiles_get_dev()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    bcm_assert((NULL != t->dev_profile) && (VP_PRFWZ_PROFILE_DEVICE == t->dev_profile[VP_PROFILE_TYPE_LSB]));
    return (t->dev_profile);
 }
@@ -380,7 +378,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_dev(const zarlink_pr
 static inline const VpProfileDataType *zarlink_profiles_get_default_AC(const zarlink_profiles_t *t,
    VpOptionCodecType codec)
 {
-   d_bcm_pr_debug("zarlink_profiles_get_default_AC(codec=%d)\n", (int)(codec));
+   d_bcm_pr_debug("%s(codec=%d)\n", __func__, (int)(codec));
    if (VP_OPTION_WIDEBAND != codec) {
       bcm_assert((NULL != t->default_AC_profile_NB) && (VP_PRFWZ_PROFILE_AC == t->default_AC_profile_NB[VP_PROFILE_TYPE_LSB]));
       return (t->default_AC_profile_NB);
@@ -396,7 +394,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_AC(const zarlink_pro
 {
    const VpProfileDataType *ret;
 
-   d_bcm_pr_debug("zarlink_profiles_get_AC(country=%d, codec=%d)\n",
+   d_bcm_pr_debug("%s(country=%d, codec=%d)\n", __func__,
       (int)(country), (int)(codec));
    bcm_assert(/* (country >= 0) && */(country < BCMPH_COUNTRY_MAX));
    if (VP_OPTION_WIDEBAND != codec) {
@@ -413,7 +411,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_AC(const zarlink_pro
 
 static inline const VpProfileDataType *zarlink_profiles_get_default_DC(const zarlink_profiles_t *t)
 {
-   d_bcm_pr_debug("zarlink_profiles_get_default_DC()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    bcm_assert((NULL != t->default_DC_profile) && (VP_PRFWZ_PROFILE_DC == t->default_DC_profile[VP_PROFILE_TYPE_LSB]));
    return (t->default_DC_profile);
 }
@@ -423,7 +421,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_DC(const zarlink_pro
 {
    const VpProfileDataType *ret;
 
-   d_bcm_pr_debug("zarlink_profiles_get_DC(country=%d)\n", (int)(country));
+   d_bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
    bcm_assert(/* (country >= 0) && */(country < BCMPH_COUNTRY_MAX));
    ret = t->DC_profiles[country];
    if ((NULL == ret) || (VP_PRFWZ_PROFILE_DC != ret[VP_PROFILE_TYPE_LSB])) {
@@ -434,7 +432,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_DC(const zarlink_pro
 
 static inline const VpProfileDataType *zarlink_profiles_get_default_ring(const zarlink_profiles_t *t)
 {
-   d_bcm_pr_debug("zarlink_profiles_get_default_ring()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    bcm_assert((NULL != t->default_ring_profile) && (VP_PRFWZ_PROFILE_RING == t->default_ring_profile[VP_PROFILE_TYPE_LSB]));
    return (t->default_ring_profile);
 }
@@ -444,7 +442,7 @@ static inline const VpProfileDataType *zarlink_profiles_get_ring(const zarlink_p
 {
    const VpProfileDataType *ret;
 
-   d_bcm_pr_debug("zarlink_profiles_get_ring(country=%d)\n", (int)(country));
+   d_bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
    bcm_assert(/* (country >= 0) && */(country < BCMPH_COUNTRY_MAX));
    ret = t->ring_profiles[country];
    if ((NULL == ret) || (VP_PRFWZ_PROFILE_RING != ret[VP_PROFILE_TYPE_LSB])) {
@@ -455,14 +453,14 @@ static inline const VpProfileDataType *zarlink_profiles_get_ring(const zarlink_p
 
 static inline void zarlink_device_id_init(zarlink_device_id_t *t, bcm_mpi_t *mpi)
 {
-   bcm_pr_debug("zarlink_device_id_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != mpi);
    t->mpi = mpi;
 }
 
 static inline void zarlink_device_id_deinit(zarlink_device_id_t *t)
 {
-   bcm_pr_debug("zarlink_device_id_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 }
 
 static VpStatusType zarlink_dev_make(void *dev_obj, VpDevCtxType *dev_ctx,
@@ -470,8 +468,7 @@ static VpStatusType zarlink_dev_make(void *dev_obj, VpDevCtxType *dev_ctx,
 {
    VpStatusType status;
 
-   bcm_pr_debug("zarlink_dev_make(deviceType=%d)\n",
-      (int)(device_type));
+   bcm_pr_debug("%s(deviceType=%d)\n", __func__, (int)(device_type));
    bcm_assert((NULL != dev_obj) && (NULL != dev_ctx));
    do // Empty loop
    {
@@ -488,7 +485,7 @@ static VpStatusType zarlink_dev_make(void *dev_obj, VpDevCtxType *dev_ctx,
 
 static void zarlink_dev_free(VpDevCtxType *dev_ctx)
 {
-   bcm_pr_debug("zarlink_dev_free()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != dev_ctx);
 }
 
@@ -498,7 +495,7 @@ static VpStatusType zarlink_dev_init(VpDevCtxType *dev_ctx, __u8 tick_period,
 {
    VpStatusType status;
 
-   bcm_pr_debug("zarlink_dev_init(country=%d)\n", (int)(country));
+   bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
    bcm_assert((NULL != dev_ctx) && (NULL != profiles));
    do // Empty loop
    {
@@ -529,7 +526,7 @@ static VpStatusType zarlink_dev_init(VpDevCtxType *dev_ctx, __u8 tick_period,
 
 static void zarlink_dev_deinit(VpDevCtxType *dev_ctx)
 {
-   bcm_pr_debug("zarlink_dev_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != dev_ctx);
 }
 
@@ -539,8 +536,8 @@ static VpStatusType zarlink_slic_line_make(VpDevCtxType *dev_ctx,
 {
    VpStatusType status;
 
-   bcm_pr_debug("zarlink_slic_line_make(term_type=%d, internal_channel_id=%u, external_channel_id=%u)\n",
-      (int)(term_type),
+   bcm_pr_debug("%s(term_type=%d, internal_channel_id=%u, external_channel_id=%u)\n",
+      __func__, (int)(term_type),
       (unsigned int)(internal_channel_id), (unsigned int)(external_channel_id));
    bcm_assert((NULL != dev_ctx) && (NULL != line_obj) && (NULL != line_ctx)
       && ((VP_TERM_FXS_GENERIC == term_type) || (VP_TERM_FXS_LOW_PWR == term_type)));
@@ -567,7 +564,7 @@ static VpStatusType zarlink_slic_line_make(VpDevCtxType *dev_ctx,
 
 static void zarlink_slic_line_free(VpLineCtxType *line_ctx)
 {
-   bcm_pr_debug("zarlink_slic_line_free()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != line_ctx);
    VpSetLineTone(line_ctx, VP_PTABLE_NULL, VP_PTABLE_NULL, VP_NULL);
    VpSetLineState(line_ctx, VP_LINE_DISCONNECT);
@@ -575,14 +572,13 @@ static void zarlink_slic_line_free(VpLineCtxType *line_ctx)
 }
 
 static VpStatusType zarlink_slic_line_init(
-   VpDevCtxType *dev_ctx, __u8 tick_period,
-   VpLineCtxType *line_ctx, VpLineStateType initial_state,
+   VpDevCtxType *dev_ctx, __u8 tick_period, VpLineCtxType *line_ctx,
    const zarlink_profiles_t *profiles, bcmph_country_t country,
    bcm_phone_codec_t codec, uint8 timeslot)
 {
    VpStatusType status;
 
-   bcm_pr_debug("zarlink_slic_line_init(country=%d, codec=%d, timeslot=%u)\n",
+   bcm_pr_debug("%s(country=%d, codec=%d, timeslot=%u)\n", __func__,
       (int)(country), (int)(codec), (unsigned int)(timeslot));
    bcm_assert((NULL != dev_ctx) && (NULL != line_ctx) && (NULL != profiles));
    do // Empty loop
@@ -609,8 +605,16 @@ static VpStatusType zarlink_slic_line_init(
          break;
       }
 
-      /* Set the initial line state */
-      status = VpSetLineState(line_ctx, initial_state);
+      /*
+       Set the initial line state to VP_LINE_STANDBY.
+       Documentation says that to run calibration, line must be set to an
+       "on-hook" state ie VP_LINE_STANDBY(_POLREV) or VP_LINE_OHT(_POLREV).
+       But that's wrong : if calibration is done when line is set to
+       VP_LINE_OHT(_POLREV), then there will be no sound until line is first
+       set to a state where A/D converters are disabled (at least i think so).
+       So to run calibration line MUST set in VP_LINE_STANDBY(_POLREV) state
+      */
+      status = VpSetLineState(line_ctx, VP_LINE_STANDBY);
       if (VP_STATUS_SUCCESS != status) {
          bcm_pr_err("VpSetLineState() failed (%d)\n", status);
          break;
@@ -658,7 +662,7 @@ static VpStatusType zarlink_slic_line_init(
 
 static void zarlink_slic_line_deinit(VpLineCtxType *line_ctx)
 {
-   bcm_pr_debug("zarlink_slic_line_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != line_ctx);
    VpSetLineTone(line_ctx, VP_PTABLE_NULL, VP_PTABLE_NULL, VP_NULL);
    VpSetLineState(line_ctx, VP_LINE_DISCONNECT);
@@ -669,9 +673,9 @@ void __init phone_dev_zarlink_init(phone_dev_zarlink_t *t,
    const phone_desc_device_t *dev_desc, __u8 tick_period,
    void *dev_obj, bcm_mpi_t *mpi)
 {
-   size_t i;
+   size_t line_idx;
 
-   bcm_pr_debug("phone_dev_zarlink_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(ARRAY_SIZE(t->lines) <= ARRAY_SIZE(t->vd.lines));
    bcm_assert((NULL != vtbl) && (NULL != dev_desc) && (NULL != dev_obj)
       && (NULL != mpi));
@@ -683,27 +687,44 @@ void __init phone_dev_zarlink_init(phone_dev_zarlink_t *t,
    zarlink_device_id_init(&(t->device_id), mpi);
    t->dev.obj = dev_obj;
    memset(&(t->dev.ctx), 0, sizeof(t->dev.ctx));
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-      t->lines[i].obj = NULL;
-      t->lines[i].ctx = NULL;
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+      t->lines[line_idx].obj = NULL;
+      t->lines[line_idx].ctx = NULL;
+
+      t->lines[line_idx].tone_cadencer.tone = BCMPH_TONE_UNSPECIFIED;
+      t->lines[line_idx].tone_cadencer.z_profile = NULL;
+      t->lines[line_idx].tone_cadencer.z_tone_id = 0;
+      t->lines[line_idx].tone_cadencer.on_time = 0;
+      t->lines[line_idx].tone_cadencer.off_time = 0;
+      t->lines[line_idx].tone_cadencer.is_on = 0;
+      t->lines[line_idx].tone_cadencer.timer = 0;
+
+      t->lines[line_idx].mode_cadencer.mode_on = BCMPH_MODE_UNSPECIFIED;
+      t->lines[line_idx].mode_cadencer.mode_off = BCMPH_MODE_UNSPECIFIED;
+      t->lines[line_idx].mode_cadencer.z_mode_on = 0;
+      t->lines[line_idx].mode_cadencer.z_mode_off = 0;
+      t->lines[line_idx].mode_cadencer.on_time = 0;
+      t->lines[line_idx].mode_cadencer.off_time = 0;
+      t->lines[line_idx].mode_cadencer.is_on = 0;
+      t->lines[line_idx].mode_cadencer.timer = 0;
    }
    t->line_update_timer = 0;
 }
 
 void phone_dev_zarlink_deinit(phone_dev_zarlink_t *t)
 {
-   size_t i;
+   size_t line_idx;
    const phone_desc_device_t *desc = phone_device_get_desc(&(t->vd));
    __u16 reset_gpio = GPIO_IS_INVALID;
 
-   bcm_pr_debug("phone_dev_zarlink_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
    if ((desc->caps & BCMPH_CAPS_REQUIRES_RESET)) {
       reset_gpio = desc->reset_gpio;
    }
    t->dev.obj = NULL;
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-      t->lines[i].obj = NULL;
-      t->lines[i].ctx = NULL;
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+      t->lines[line_idx].obj = NULL;
+      t->lines[line_idx].ctx = NULL;
    }
    t->dev.obj = NULL;
    zarlink_device_id_deinit(&(t->device_id));
@@ -717,15 +738,14 @@ static VpStatusType phone_dev_zarlink_init_vp_objects(phone_dev_zarlink_t *t,
    bcmph_country_t country)
 {
    VpStatusType status;
-   size_t i;
+   size_t line_idx;
 #ifndef BCMPH_TEST_PCM
    __u8 tick_period = phone_device_get_tick_period(&(t->vd));
 #endif // BCMPH_TEST_PCM
    const phone_desc_device_t *desc = phone_device_get_desc(&(t->vd));
    const phone_line_t *first_line = NULL;
 
-   bcm_pr_debug("phone_dev_zarlink_init_vp_objects(country=%d)\n",
-      (int)(country));
+   bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
    bcm_assert((NULL != phone_dev_zarlink_get_dev_obj(t))
       && (NULL != phone_dev_zarlink_get_device_id(t)->mpi));
 
@@ -738,25 +758,25 @@ static VpStatusType phone_dev_zarlink_init_vp_objects(phone_dev_zarlink_t *t,
       goto failMakeDev;
    }
 
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1)
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1)
    {
-      const phone_line_t *vl = phone_device_get_line(&(t->vd), i);
+      const phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
       if (NULL != vl) {
-         bcm_assert((NULL != phone_dev_zarlink_get_line_obj(t, i))
-            && (NULL != phone_dev_zarlink_get_line_ctx(t, i)));
+         bcm_assert((NULL != phone_dev_zarlink_get_line_obj(t, line_idx))
+            && (NULL != phone_dev_zarlink_get_line_ctx(t, line_idx)));
          status = zarlink_slic_line_make(phone_dev_zarlink_get_dev_ctx(t),
-            phone_dev_zarlink_get_line_obj(t, i),
-            phone_dev_zarlink_get_line_ctx(t, i),
-            desc->lines[i].parameters.zarlink->type,
-            desc->lines[i].parameters.zarlink->id, i);
+            phone_dev_zarlink_get_line_obj(t, line_idx),
+            phone_dev_zarlink_get_line_ctx(t, line_idx),
+            desc->lines[line_idx].parameters.zarlink->type,
+            desc->lines[line_idx].parameters.zarlink->id, line_idx);
          if (VP_STATUS_SUCCESS != status)
          {
-            while (i > 0)
+            while (line_idx > 0)
             {
-               i -= 1;
-               vl = phone_device_get_line(&(t->vd), i);
+               line_idx -= 1;
+               vl = phone_device_get_line(&(t->vd), line_idx);
                if (NULL != vl) {
-                  zarlink_slic_line_free(phone_dev_zarlink_get_line_ctx(t, i));
+                  zarlink_slic_line_free(phone_dev_zarlink_get_line_ctx(t, line_idx));
                }
             }
             goto failMakeLine;
@@ -776,23 +796,22 @@ static VpStatusType phone_dev_zarlink_init_vp_objects(phone_dev_zarlink_t *t,
       goto failInitDev;
    }
 
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1)
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1)
    {
-      const phone_line_t *vl = phone_device_get_line(&(t->vd), i);
+      const phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
       if ((NULL != vl) && (phone_line_is_enabled(vl))) {
          status = zarlink_slic_line_init(phone_dev_zarlink_get_dev_ctx(t),
-            tick_period, phone_dev_zarlink_get_line_ctx(t, i),
-            desc->parameters.zarlink->modes.on_hook_idle,
-            &(desc->parameters.zarlink->profiles), country,
-            vl->line_state.codec, vl->timeslot);
+            tick_period, phone_dev_zarlink_get_line_ctx(t, line_idx),
+            &(desc->parameters.zarlink->profiles),
+            country, vl->line_state.codec, vl->timeslot);
          if (VP_STATUS_SUCCESS != status)
          {
-            while (i > 0)
+            while (line_idx > 0)
             {
-               i -= 1;
-               vl = phone_device_get_line(&(t->vd), i);
+               line_idx -= 1;
+               vl = phone_device_get_line(&(t->vd), line_idx);
                if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-                  zarlink_slic_line_deinit(phone_dev_zarlink_get_line_ctx(t, i));
+                  zarlink_slic_line_deinit(phone_dev_zarlink_get_line_ctx(t, line_idx));
                }
             }
             goto failInitLine;
@@ -804,30 +823,30 @@ static VpStatusType phone_dev_zarlink_init_vp_objects(phone_dev_zarlink_t *t,
    return (status);
 
 #ifndef BCMPH_TEST_PCM
-   i = ARRAY_SIZE(t->lines);
+   line_idx = ARRAY_SIZE(t->lines);
    do
    {
       const phone_line_t *vl;
-      i -= 1;
-      vl = phone_device_get_line(&(t->vd), i);
+      line_idx -= 1;
+      vl = phone_device_get_line(&(t->vd), line_idx);
       if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-         zarlink_slic_line_deinit(phone_dev_zarlink_get_line_ctx(t, i));
+         zarlink_slic_line_deinit(phone_dev_zarlink_get_line_ctx(t, line_idx));
       }
-   } while (i > 0);
+   } while (line_idx > 0);
 failInitLine:
    zarlink_dev_deinit(phone_dev_zarlink_get_dev_ctx(t));
 failInitDev:
 #endif // BCMPH_TEST_PCM
-   i = ARRAY_SIZE(t->lines);
+   line_idx = ARRAY_SIZE(t->lines);
    do
    {
       const phone_line_t *vl;
-      i -= 1;
-      vl = phone_device_get_line(&(t->vd), i);
+      line_idx -= 1;
+      vl = phone_device_get_line(&(t->vd), line_idx);
       if (NULL != vl) {
-         zarlink_slic_line_free(phone_dev_zarlink_get_line_ctx(t, i));
+         zarlink_slic_line_free(phone_dev_zarlink_get_line_ctx(t, line_idx));
       }
-   } while (i > 0);
+   } while (line_idx > 0);
 failMakeLine:
    zarlink_dev_free(phone_dev_zarlink_get_dev_ctx(t));
 failMakeDev:
@@ -841,7 +860,7 @@ static void phone_dev_zarlink_deinit_vp_objects(phone_dev_zarlink_t *t)
 {
    size_t i;
 
-   bcm_pr_debug("phone_dev_zarlink_deinit_vp_objects()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
 #ifndef BCMPH_TEST_PCM
    i = ARRAY_SIZE(t->lines);
@@ -872,153 +891,25 @@ static void phone_dev_zarlink_deinit_vp_objects(phone_dev_zarlink_t *t)
    zarlink_dev_free(phone_dev_zarlink_get_dev_ctx(t));
 }
 
-static void phone_dev_zarlink_stop(phone_dev_zarlink_t *t)
-{
-   bcm_pr_debug("phone_dev_zarlink_stop()\n");
-
-   if (phone_device_is_started(&(t->vd))) {
-      size_t i;
-
-      phone_dev_zarlink_deinit_vp_objects(t);
-      for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-            phone_line_disable(vl);
-         }
-      }
-      phone_device_stop(&(t->vd));
-   }
-}
-
-static int phone_dev_zarlink_start(phone_dev_zarlink_t *t,
-   bcmph_country_t country,
-   const phone_line_params_t * const *line_params, size_t line_count)
-{
-   int ret = 0;
-   size_t i;
-   VpStatusType status;
-
-   bcm_pr_debug("phone_dev_zarlink_start(country=%d)\n", (int)(country));
-   bcm_assert((NULL != line_params) && (line_count <= ARRAY_SIZE(t->lines)));
-
-   phone_dev_zarlink_stop(t);
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-      if ((i < line_count) && (NULL != line_params[i]) && (line_params[i]->enable)) {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-         bcm_assert((NULL != vl) && (NULL != phone_dev_zarlink_get_line_ctx(t, i)));
-         phone_line_enable(vl, line_params[i]->codec, line_params[i]->first_timeslot);
-      }
-      else {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-         if (NULL != vl) {
-            phone_line_disable(vl);
-         }
-      }
-   }
-
-   status = phone_dev_zarlink_init_vp_objects(t, country);
-   if (VP_STATUS_SUCCESS == status) {
-#ifndef BCMPH_TEST_PCM
-#ifdef BCMPH_VP_DECODE_PULSE
-      VpOptionPulseModeType pulse_mode;
-#endif // BCMPH_VP_DECODE_PULSE
-      VpOptionEventMaskType event_mask;
-      bool hook_status;
-
-      memset(&(event_mask), 0xFF, sizeof(event_mask));
-      event_mask.faults = (~(VP_DEV_EVID_CLK_FLT | VP_DEV_EVID_BAT_FLT
-         | VP_LINE_EVID_THERM_FLT | VP_LINE_EVID_DC_FLT | VP_LINE_EVID_AC_FLT));
-      event_mask.signaling = (~(VP_LINE_EVID_HOOK_OFF | VP_LINE_EVID_HOOK_ON));
-#ifdef BCMPH_VP_DECODE_PULSE
-      event_mask.signaling &= (~(VP_LINE_EVID_PULSE_DIG
-         | VP_LINE_EVID_FLASH | VP_LINE_EVID_EXTD_FLASH));
-      pulse_mode = VP_OPTION_PULSE_DECODE_ON;
-#endif // BCMPH_VP_DECODE_PULSE
-      for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-            status = VpSetOption(phone_dev_zarlink_get_line_ctx(t, i),
-               NULL, VP_OPTION_ID_EVENT_MASK, &(event_mask));
-            if (VP_STATUS_SUCCESS != status) {
-               bcm_pr_err("Failed to set event mask (%d)\n", status);
-               break;
-            }
-#ifdef BCMPH_VP_DECODE_PULSE
-            status = VpSetOption(phone_dev_zarlink_get_line_ctx(t, i),
-               NULL, VP_OPTION_ID_PULSE_MODE, &(pulse_mode));
-            if (VP_STATUS_SUCCESS != status) {
-               bcm_pr_err("Failed to set pulse mode (%d)\n", status);
-               break;
-            }
-#endif // BCMPH_VP_DECODE_PULSE
-            status = VpGetLineStatus(phone_dev_zarlink_get_line_ctx(t, i),
-               VP_INPUT_HOOK, &(hook_status));
-            if (VP_STATUS_SUCCESS != status) {
-               bcm_pr_err("Failed to get hook status (%d)\n", status);
-               break;
-            }
-            if (hook_status) {
-               bcm_pr_debug("Line %lu is off hook\n", (unsigned long)(i));
-               vl->line_state.status = BCMPH_STATUS_OFF_HOOK;
-            }
-            else {
-               bcm_pr_debug("Line %lu is on hook\n", (unsigned long)(i));
-               vl->line_state.status = BCMPH_STATUS_ON_HOOK;
-            }
-         }
-         t->lines[i].tone_cadencer.off_time = 0;
-         t->lines[i].mode_cadencer.off_time = 0;
-      }
-      if (i < ARRAY_SIZE(t->lines)) {
-         ret = -1;
-         for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-            phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-            if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-               phone_line_disable(vl);
-            }
-         }
-         phone_dev_zarlink_deinit_vp_objects(t);
-      }
-      else {
-#endif // !BCMPH_TEST_PCM
-         phone_device_start(&(t->vd), country);
-         t->line_update_timer = phone_device_get_tick_period(&(t->vd));
-#ifndef BCMPH_TEST_PCM
-      }
-#endif // !BCMPH_TEST_PCM
-   }
-   else {
-      bcm_pr_err("Failed to configure zarlink device\n");
-      ret = -1;
-      for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), i);
-         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-            phone_line_disable(vl);
-         }
-      }
-   }
-
-   return (ret);
-}
-
 static inline bool phone_dev_zarlink_is_mode_valid(
    bcm_phone_line_status_t status, bcm_phone_line_mode_t mode)
 {
    bool ret = true;
-   dd_bcm_pr_debug("phone_dev_zarlink_is_mode_valid(status=%d, mode=%d)\n",
+   dd_bcm_pr_debug("%s(status=%d, mode=%d)\n", __func__,
       (int)(status), (int)(mode));
-   if (BCMPH_MODE_IDLE != mode) {
-      if (BCMPH_STATUS_DISCONNECTED == status) {
-         ret = false;
-      }
-      else if (BCMPH_STATUS_ON_HOOK == status) {
-         if (BCMPH_MODE_ON_RINGING != mode) {
+   /*
+    * BCMPH_MODE_DISCONNECT and BCMPH_MODE_IDLE are compatible
+    * with any status
+    */
+   if ((BCMPH_MODE_DISCONNECT != mode) && (BCMPH_MODE_IDLE != mode)) {
+      if (BCMPH_STATUS_ON_HOOK == status) {
+         if (BCMPH_MODE_OFF_TALKING == mode) {
             ret = false;
          }
       }
       else {
          bcm_assert(BCMPH_STATUS_OFF_HOOK == status);
-         if (BCMPH_MODE_ON_RINGING == mode) {
+         if ((BCMPH_MODE_ON_RINGING == mode) || (BCMPH_MODE_ON_TALKING == mode)) {
             ret = false;
          }
       }
@@ -1031,13 +922,15 @@ static inline bool phone_dev_zarlink_is_tone_valid(
    bcm_phone_line_tone_t tone_index)
 {
    bool ret = true;
-   dd_bcm_pr_debug("phone_dev_zarlink_is_tone_valid(status=%d, mode=%d, tone_index=%d)\n",
+   dd_bcm_pr_debug("%s(status=%d, mode=%d, tone_index=%d)\n", __func__,
       (int)(status), (int)(mode), (int)(tone_index));
    if (BCMPH_TONE_NONE != tone_index) {
+      /* Tones can be played only when off hook */
       if (BCMPH_STATUS_OFF_HOOK != status) {
          ret = false;
       }
       else if ((BCMPH_MODE_IDLE != mode) && (BCMPH_MODE_OFF_TALKING != mode)) {
+         /* Off hook status is only allowed with status BCMPH_MODE_IDLE, BCMPH_MODE_OFF_TALKING */
          ret = false;
       }
    }
@@ -1051,9 +944,9 @@ static inline VpStatusType phone_dev_zarlink_set_tone_on(
 {
    VpStatusType ret;
 
-   d_bcm_pr_debug("phone_dev_zarlink_set_tone_on(line=%lu, z_profile=0x%lx, z_tone_id=%d, time=%u)\n",
-      (unsigned long)(line), (unsigned long)(z_profile), (int)(z_tone_id),
-      (unsigned)(time));
+   d_bcm_pr_debug("%s(line=%lu, z_profile=0x%lx, z_tone_id=%d, time=%u)\n",
+      __func__, (unsigned long)(line), (unsigned long)(z_profile),
+      (int)(z_tone_id), (unsigned)(time));
    bcm_assert(line < ARRAY_SIZE(t->lines));
 #ifndef BCMPH_TEST_PCM
    if (NULL != z_profile) {
@@ -1083,7 +976,7 @@ static inline VpStatusType phone_dev_zarlink_set_tone_off(
 {
    VpStatusType ret;
 
-   d_bcm_pr_debug("phone_dev_zarlink_set_tone_off(line=%lu, time=%u)\n",
+   d_bcm_pr_debug("%s(line=%lu, time=%u)\n", __func__,
       (unsigned long)(line), (unsigned)(time));
    bcm_assert(line < ARRAY_SIZE(t->lines));
 #ifndef BCMPH_TEST_PCM
@@ -1114,7 +1007,7 @@ static VpStatusType phone_dev_zarlink_tone_start(phone_dev_zarlink_t *t,
    __u16 on_time = bcm_phone_line_tone_decode_on_time(tone);
    __u16 off_time = bcm_phone_line_tone_decode_off_time(tone);
 
-   d_bcm_pr_debug("phone_dev_zarlink_tone_start(line=%lu, tone=0x%lx)\n",
+   d_bcm_pr_debug("%s(line=%lu, tone=0x%lx)\n", __func__,
       (unsigned long)(line), (unsigned long)(tone));
 
    switch (tone_index) {
@@ -1223,7 +1116,7 @@ static VpStatusType phone_dev_zarlink_tone_start(phone_dev_zarlink_t *t,
 static VpStatusType phone_dev_zarlink_tone_stop(phone_dev_zarlink_t *t, size_t line)
 {
    VpStatusType ret;
-   d_bcm_pr_debug("phone_dev_zarlink_tone_stop(line=%lu)\n",
+   d_bcm_pr_debug("%s(line=%lu)\n", __func__,
       (unsigned long)(line));
    ret = phone_dev_zarlink_set_tone_off(t, line, 0);
    if (VP_STATUS_SUCCESS == ret) {
@@ -1238,7 +1131,7 @@ static inline VpStatusType phone_dev_zarlink_set_mode_on(
 {
    VpStatusType ret;
 
-   d_bcm_pr_debug("phone_dev_zarlink_set_mode_on(line=%lu, mode_on=%d, time=%u)\n",
+   d_bcm_pr_debug("%s(line=%lu, mode_on=%d, time=%u)\n", __func__,
       (unsigned long)(line), (int)(mode_on), (unsigned)(time));
    bcm_assert(line < ARRAY_SIZE(t->lines));
 #ifndef BCMPH_TEST_PCM
@@ -1262,7 +1155,7 @@ static inline VpStatusType phone_dev_zarlink_set_mode_off(
 {
    VpStatusType ret;
 
-   d_bcm_pr_debug("phone_dev_zarlink_set_mode_off(line=%lu, mode_off=%d, time=%u)\n",
+   d_bcm_pr_debug("%s(line=%lu, mode_off=%d, time=%u)\n", __func__,
       (unsigned long)(line), (int)(mode_off), (unsigned)(time));
    bcm_assert(line < ARRAY_SIZE(t->lines));
 #ifndef BCMPH_TEST_PCM
@@ -1281,94 +1174,116 @@ static inline VpStatusType phone_dev_zarlink_set_mode_off(
 }
 
 static VpStatusType phone_dev_zarlink_mode_start(phone_dev_zarlink_t *t,
-   size_t line, bcm_phone_line_mode_t mode)
+   size_t line, bool rev_polarity, bcm_phone_line_mode_t mode)
 {
    VpStatusType ret;
-   bool is_disconnected = false;
    const phone_desc_device_t *phone_desc = phone_device_get_desc(&(t->vd));
+   phone_line_t *vl = phone_device_get_line(&(t->vd), line);
    bcm_phone_line_mode_t mode_off = mode;
    VpLineStateType z_mode_on;
    VpLineStateType z_mode_off;
    __u16 on_time = 0x8000;
    __u16 off_time = 0;
 
-   d_bcm_pr_debug("phone_dev_zarlink_mode_start(line=%lu, mode=%d)\n",
-      (unsigned long)(line), (int)(mode));
-   bcm_assert(line < ARRAY_SIZE(t->lines));
+   d_bcm_pr_debug("%s(line=%lu, rev_polarity=%d, mode=%d)\n", __func__,
+      (unsigned long)(line), (int)(rev_polarity), (int)(mode));
+   bcm_assert((line < ARRAY_SIZE(t->lines))
+      && (NULL != vl) && (phone_line_is_enabled(vl)));
 
    switch (mode) {
       case BCMPH_MODE_ON_RINGING: {
-         z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_ringing;
-         z_mode_off = phone_desc->parameters.zarlink->modes.on_hook_idle;
-         mode_off = BCMPH_MODE_IDLE;
-         on_time = phone_desc->parameters.zarlink->modes.ring_cadence.on_time;
-         off_time = phone_desc->parameters.zarlink->modes.ring_cadence.off_time;
-         bcm_assert((on_time > 0) || (off_time > 0));
+         if (!rev_polarity) {
+            z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_ringing;
+         }
+         else {
+            z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_ringing_polrev;
+         }
+         z_mode_off = z_mode_on;
+         break;
+      }
+      case BCMPH_MODE_ON_TALKING: {
+         if (!rev_polarity) {
+            z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_talking;
+         }
+         else {
+            z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_talking_polrev;
+         }
+         z_mode_off = z_mode_on;
          break;
       }
       case BCMPH_MODE_OFF_TALKING: {
-         z_mode_on = phone_desc->parameters.zarlink->modes.off_hook_talking;
+         if (!rev_polarity) {
+            z_mode_on = phone_desc->parameters.zarlink->modes.off_hook_talking;
+         }
+         else {
+            z_mode_on = phone_desc->parameters.zarlink->modes.off_hook_talking_polrev;
+         }
+         z_mode_off = z_mode_on;
+         break;
+      }
+      case BCMPH_MODE_DISCONNECT: {
+         z_mode_on = phone_desc->parameters.zarlink->modes.disconnect;
          z_mode_off = z_mode_on;
          break;
       }
       default: {
-         phone_line_t *vl = phone_device_get_line(&(t->vd), line);
          bcm_phone_line_state_t *ls = &(vl->line_state);
          if (BCMPH_MODE_IDLE != mode) {
             bcm_pr_debug("Unknown mode %d\n", (int)(mode));
          }
-         // If disconnected do not change the line state
-         if (BCMPH_STATUS_DISCONNECTED != ls->status) {
-            if (BCMPH_STATUS_OFF_HOOK == ls->status) {
+         if (BCMPH_STATUS_OFF_HOOK == ls->status) {
+            // Off hook
+            if (!rev_polarity) {
                z_mode_on = phone_desc->parameters.zarlink->modes.off_hook_idle;
             }
             else {
-               z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_idle;
+               z_mode_on = phone_desc->parameters.zarlink->modes.off_hook_idle_polrev;
             }
-            z_mode_off = z_mode_on;
          }
          else {
-            is_disconnected = true;
+            // On hook
+            if (!rev_polarity) {
+               z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_idle;
+            }
+            else {
+               z_mode_on = phone_desc->parameters.zarlink->modes.on_hook_idle_polrev;
+            }
          }
+         z_mode_off = z_mode_on;
          break;
       }
    }
 
-   if (is_disconnected) {
-      ret = VP_STATUS_SUCCESS;
+   if (z_mode_on == z_mode_off) {
+      // Same mode, so we switch to mode_off and disable cadencing
+      on_time = 0;
+      off_time = 0;
    }
    else {
-      if (z_mode_on == z_mode_off) {
-         // Same mode, so we switch to mode_off and disable cadencing
-         on_time = 0;
-         off_time = 0;
-      }
-      else {
-         // We convert msecs to tick counts
-         __u8 tick_period = phone_device_get_tick_period(&(t->vd));
-         on_time = round_up_generic(on_time, tick_period);
-         off_time = round_up_generic(off_time, tick_period);
-      }
-      if (on_time > 0) {
-         // Continuous (if off_time == 0) or repeating mode
-         ret = phone_dev_zarlink_set_mode_on(t, line, z_mode_on, on_time);
-      }
-      else if (off_time > 0) {
-         // One shot mode
-         ret = phone_dev_zarlink_set_mode_on(t, line, z_mode_on, off_time);
-      }
-      else {
-         // No mode
-         ret = phone_dev_zarlink_set_mode_off(t, line, z_mode_off, 0);
-      }
-      if (VP_STATUS_SUCCESS == ret) {
-         t->lines[line].mode_cadencer.mode_on = mode;
-         t->lines[line].mode_cadencer.mode_off = mode_off;
-         t->lines[line].mode_cadencer.z_mode_on = z_mode_on;
-         t->lines[line].mode_cadencer.z_mode_off = z_mode_off;
-         t->lines[line].mode_cadencer.on_time = on_time;
-         t->lines[line].mode_cadencer.off_time = off_time;
-      }
+      // We convert msecs to tick counts
+      __u8 tick_period = phone_device_get_tick_period(&(t->vd));
+      on_time = round_up_generic(on_time, tick_period);
+      off_time = round_up_generic(off_time, tick_period);
+   }
+   if (on_time > 0) {
+      // Continuous (if off_time == 0) or repeating mode
+      ret = phone_dev_zarlink_set_mode_on(t, line, z_mode_on, on_time);
+   }
+   else if (off_time > 0) {
+      // One shot mode
+      ret = phone_dev_zarlink_set_mode_on(t, line, z_mode_on, off_time);
+   }
+   else {
+      // No mode
+      ret = phone_dev_zarlink_set_mode_off(t, line, z_mode_off, 0);
+   }
+   if (VP_STATUS_SUCCESS == ret) {
+      t->lines[line].mode_cadencer.mode_on = mode;
+      t->lines[line].mode_cadencer.mode_off = mode_off;
+      t->lines[line].mode_cadencer.z_mode_on = z_mode_on;
+      t->lines[line].mode_cadencer.z_mode_off = z_mode_off;
+      t->lines[line].mode_cadencer.on_time = on_time;
+      t->lines[line].mode_cadencer.off_time = off_time;
    }
    return (ret);
 }
@@ -1377,8 +1292,7 @@ static VpStatusType phone_dev_zarlink_mode_stop(phone_dev_zarlink_t *t,
    size_t line)
 {
    VpStatusType ret;
-   d_bcm_pr_debug("phone_dev_zarlink_mode_stop(line=%lu)\n",
-      (unsigned long)(line));
+   d_bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
    ret = phone_dev_zarlink_set_mode_off(t, line,
       t->lines[line].mode_cadencer.z_mode_off, 0);
    if (VP_STATUS_SUCCESS == ret) {
@@ -1394,8 +1308,7 @@ static void phone_dev_zarlink_update_line(phone_dev_zarlink_t *t, size_t line)
    bcm_phone_line_tone_t new_tone_index;
    VpStatusType status;
 
-   dd_bcm_pr_debug("phone_dev_zarlink_update_line(line=%lu)\n",
-      (unsigned long)(line));
+   dd_bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
    bcm_assert((NULL != vl) && (phone_line_is_enabled(vl)));
 
    ls = &(vl->line_state);
@@ -1442,17 +1355,26 @@ static void phone_dev_zarlink_update_line(phone_dev_zarlink_t *t, size_t line)
          phone_line_line_state_changed(vl);
       }
    }
-   if (vl->new_mode != ls->mode) {
-      d_bcm_pr_debug("Changing to mode %d\n", (int)(vl->new_mode));
-      status = phone_dev_zarlink_mode_start(t, line, vl->new_mode);
+   if ((vl->new_rev_polarity != ls->rev_polarity) || (vl->new_mode != ls->mode)) {
+      d_bcm_pr_debug("Changing to rev_polarity %d and mode %d\n",
+         (int)(vl->new_rev_polarity), (int)(vl->new_mode));
+      status = phone_dev_zarlink_mode_start(t, line,
+         vl->new_rev_polarity, vl->new_mode);
       if (VP_STATUS_SUCCESS != status) {
          bcm_pr_err("Failed to set line mode (%d)\n", status);
          // Abort mode change
          vl->new_mode = ls->mode;
+         vl->new_rev_polarity = ls->rev_polarity;
       }
       else {
-         ls->mode = vl->new_mode;
-         ls->mode_change_count += 1;
+         if (vl->new_rev_polarity != ls->rev_polarity) {
+            ls->rev_polarity = vl->new_rev_polarity;
+            ls->rev_polarity_change_count += 1;
+         }
+         if (vl->new_mode != ls->mode) {
+            ls->mode = vl->new_mode;
+            ls->mode_change_count += 1;
+         }
          phone_line_line_state_changed(vl);
       }
    }
@@ -1488,8 +1410,8 @@ static inline void phone_dev_zarlink_update_tone(phone_dev_zarlink_t *t,
    phone_line_t *vl = phone_device_get_line(&(t->vd), line);
    bcm_phone_line_state_t *ls = &(vl->line_state);
 
-   d_bcm_pr_debug("phone_dev_zarlink_update_tone(line=%lu, initial_tone=%d, actual_tone=%d)\n",
-      (unsigned long)(line), (int)(initial_tone), (int)(actual_tone));
+   d_bcm_pr_debug("%s(line=%lu, initial_tone=%d, actual_tone=%d)\n",
+      __func__, (unsigned long)(line), (int)(initial_tone), (int)(actual_tone));
    /*
     We check before changing new_tone that it has the value asked in
     phone_dev_zarlink_tone_start() else it means that the user asked another
@@ -1510,8 +1432,7 @@ static void phone_dev_zarlink_tone_tick(phone_dev_zarlink_t *t,
 {
    __u8 tick_period = phone_device_get_tick_period(&(t->vd));
 
-   d_bcm_pr_debug("phone_dev_zarlink_tone_tick(line=%lu)\n",
-      (unsigned long)(line));
+   dd_bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
    bcm_assert((line < ARRAY_SIZE(t->lines))
       && ((NULL != t->lines[line].tone_cadencer.z_profile)
           || (VP_DIG_NONE != t->lines[line].tone_cadencer.z_tone_id))
@@ -1573,7 +1494,7 @@ static inline void phone_dev_zarlink_update_mode(phone_dev_zarlink_t *t,
    phone_line_t *vl = phone_device_get_line(&(t->vd), line);
    bcm_phone_line_state_t *ls = &(vl->line_state);
 
-   d_bcm_pr_debug("phone_dev_zarlink_update_tone(line=%lu, initial_mode=%d, actual_mode=%d)\n",
+   d_bcm_pr_debug("%s(line=%lu, initial_mode=%d, actual_mode=%d)\n", __func__,
       (unsigned long)(line), (int)(initial_mode), (int)(actual_mode));
    /*
     We check before changing new_mode that it has the value asked in
@@ -1595,8 +1516,7 @@ static void phone_dev_zarlink_mode_tick(phone_dev_zarlink_t *t,
 {
    __u8 tick_period = phone_device_get_tick_period(&(t->vd));
 
-   d_bcm_pr_debug("phone_dev_zarlink_ring_tick(line=%lu)\n",
-      (unsigned long)(line));
+   dd_bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
    bcm_assert((line < ARRAY_SIZE(t->lines))
       && (t->lines[line].mode_cadencer.off_time > 0));
 
@@ -1652,41 +1572,23 @@ static void phone_dev_zarlink_mode_tick(phone_dev_zarlink_t *t,
 static void phone_dev_zarlink_disconnect_line(phone_dev_zarlink_t *t, size_t line)
 {
    phone_line_t *vl = phone_device_get_line(&(t->vd), line);
-   bcm_phone_line_state_t *ls;
-   VpStatusType status;
 
-   bcm_pr_debug("phone_dev_zarlink_disconnect_line(line=%lu)\n",
-      (unsigned long)(line));
-   bcm_assert((NULL != vl) && (NULL != phone_dev_zarlink_get_line_ctx(t, line)));
+   bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
+   bcm_assert(NULL != vl);
 
-   ls = &(vl->line_state);
-   // Set the status to DISCONNECTED and line_mode to NONE
-   if (BCMPH_STATUS_DISCONNECTED != ls->status) {
-      ls->status = BCMPH_STATUS_DISCONNECTED;
-      ls->status_change_count += 1;
-      phone_line_line_state_changed(vl);
-   }
-   vl->new_mode = BCMPH_MODE_IDLE;
+   vl->new_mode = BCMPH_MODE_DISCONNECT;
    vl->new_tone = bcm_phone_line_tone_code_index(BCMPH_TONE_NONE);
    // Update the line immediately and disconnect it
    phone_dev_zarlink_update_line(t, line);
-   t->lines[line].tone_cadencer.off_time = 0;
-   t->lines[line].mode_cadencer.off_time = 0;
-   status = VpSetLineState(phone_dev_zarlink_get_line_ctx(t, line),
-      VP_LINE_DISCONNECT);
-   if (VP_STATUS_SUCCESS != status) {
-      bcm_pr_err("Failed to disconnect the line %lu (%d)\n",
-         (unsigned long)(line), (int)(status));
-   }
 }
 
 void phone_dev_zarlink_tick(phone_device_t *d)
 {
    phone_dev_zarlink_t *t = container_of(d, phone_dev_zarlink_t, vd);
 
-   dd_bcm_pr_debug("phone_dev_zarlink_tick()\n");
-#ifndef BCMPH_TEST_PCM
+   dd_bcm_pr_debug("%s()\n", __func__);
    if (phone_device_is_started(&(t->vd))) {
+#ifndef BCMPH_TEST_PCM
       VpStatusType status;
       bool event_pending = FALSE;
 
@@ -1706,14 +1608,14 @@ void phone_dev_zarlink_tick(phone_device_t *d)
                         unexpected = false;
 
                         if (VP_BAT_FLT_NONE != event.eventData) {
-                           size_t i;
+                           size_t line_idx;
 
                            bcm_pr_err("Battery fault detected on Zarlink device. Disconnecting its lines\n");
 
-                           for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-                              phone_line_t *line = phone_device_get_line(&(t->vd), i);
+                           for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+                              phone_line_t *line = phone_device_get_line(&(t->vd), line_idx);
                               if ((NULL != line) && (phone_line_is_enabled(line))) {
-                                 phone_dev_zarlink_disconnect_line(t, i);
+                                 phone_dev_zarlink_disconnect_line(t, line_idx);
                               }
                            }
                         }
@@ -1724,14 +1626,14 @@ void phone_dev_zarlink_tick(phone_device_t *d)
                         unexpected = false;
 
                         if ((event.eventData & 0x01)) {
-                           size_t i;
+                           size_t line_idx;
 
                            bcm_pr_err("Clock fault detected on Zarlink device. Disconnecting its lines.\n");
 
-                           for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-                              phone_line_t *line = phone_device_get_line(&(t->vd), i);
+                           for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+                              phone_line_t *line = phone_device_get_line(&(t->vd), line_idx);
                               if ((NULL != line) && (phone_line_is_enabled(line))) {
-                                 phone_dev_zarlink_disconnect_line(t, i);
+                                 phone_dev_zarlink_disconnect_line(t, line_idx);
                               }
                            }
                         }
@@ -1894,16 +1796,16 @@ void phone_dev_zarlink_tick(phone_device_t *d)
       }
 
       {
-         size_t i;
+         size_t line_idx;
 
-         for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-            phone_line_t *vl = phone_device_get_line(&(t->vd), i);
+         for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+            phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
             if ((NULL != vl) && (phone_line_is_enabled(vl))) {
-               if (t->lines[i].tone_cadencer.off_time > 0) {
-                  phone_dev_zarlink_tone_tick(t, i);
+               if (t->lines[line_idx].tone_cadencer.off_time > 0) {
+                  phone_dev_zarlink_tone_tick(t, line_idx);
                }
-               if (t->lines[i].mode_cadencer.off_time > 0) {
-                  phone_dev_zarlink_mode_tick(t, i);
+               if (t->lines[line_idx].mode_cadencer.off_time > 0) {
+                  phone_dev_zarlink_mode_tick(t, line_idx);
                }
                /*
                 We must update the line after having called
@@ -1912,7 +1814,7 @@ void phone_dev_zarlink_tick(phone_device_t *d)
                 new_tone.
                */
                if (t->line_update_timer <= 0) {
-                  phone_dev_zarlink_update_line(t, i);
+                  phone_dev_zarlink_update_line(t, line_idx);
                }
             }
          }
@@ -1920,15 +1822,182 @@ void phone_dev_zarlink_tick(phone_device_t *d)
       }
 
       t->line_update_timer += phone_device_get_tick_period(&(t->vd));
-#ifndef BCMPH_TEST_PCM
    }
-#endif // !BCMPH_TEST_PCM
 }
 
 void phone_dev_zarlink_update_line_state_asap(phone_device_t *d, size_t index_line)
 {
    phone_dev_zarlink_t *t = container_of(d, phone_dev_zarlink_t, vd);
    t->line_update_timer = 0;
+}
+
+static void phone_dev_zarlink_stop(phone_dev_zarlink_t *t)
+{
+   bcm_pr_debug("%s()\n", __func__);
+
+   if (phone_device_is_started(&(t->vd))) {
+      size_t line_idx;
+
+      phone_dev_zarlink_deinit_vp_objects(t);
+      for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+         phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
+            phone_line_disable(vl);
+         }
+      }
+      phone_device_stop(&(t->vd));
+   }
+}
+
+static VpStatusType phone_dev_zarlink_get_hook_status(phone_dev_zarlink_t *t,
+   size_t line)
+{
+   VpStatusType ret;
+   bool hook_status;
+   phone_line_t *vl = phone_device_get_line(&(t->vd), line);
+   VpLineCtxType *ctx = phone_dev_zarlink_get_line_ctx(t, line);
+   bcm_assert((NULL != vl) && (NULL != ctx));
+
+   d_bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
+
+   ret = VpGetLineStatus(ctx, VP_INPUT_HOOK, &(hook_status));
+   if (VP_STATUS_SUCCESS != ret) {
+      bcm_pr_err("Failed to get hook status (%d)\n", ret);
+   }
+   else {
+      if (hook_status) {
+         bcm_pr_debug("Line %lu is off hook\n", (unsigned long)(line));
+         vl->line_state.status = BCMPH_STATUS_OFF_HOOK;
+      }
+      else {
+         bcm_pr_debug("Line %lu is on hook\n", (unsigned long)(line));
+         vl->line_state.status = BCMPH_STATUS_ON_HOOK;
+      }
+   }
+   return (ret);
+}
+
+static int phone_dev_zarlink_start(phone_dev_zarlink_t *t,
+   bcmph_country_t country,
+   const phone_line_params_t * const *line_params, size_t line_count)
+{
+   int ret = 0;
+   size_t line_idx;
+   VpStatusType status;
+
+   bcm_pr_debug("%s(country=%d)\n", __func__, (int)(country));
+   bcm_assert((NULL != line_params) && (line_count <= ARRAY_SIZE(t->lines)));
+
+   phone_dev_zarlink_stop(t);
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+      if ((line_idx < line_count) && (NULL != line_params[line_idx]) && (line_params[line_idx]->enable)) {
+         phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+         bcm_assert((NULL != vl) && (NULL != phone_dev_zarlink_get_line_ctx(t, line_idx)));
+         /*
+          * We must choose an initial state and initial mode of the line.
+          * We consider that initial status is on hook,
+          * and initial mode is BCMPH_MODE_IDLE.
+          * This should be compatible with initial state passed
+          * to function zarlink_slic_line_init() in
+          * phone_dev_zarlink_init_vp_objects().
+          * Anyway, below once we read the status of the line we
+          * force the mode to BCMPH_MODE_IDLE and tone to BCMPH_TONE_NONE
+          */
+         phone_line_enable(vl, line_params[line_idx]->codec, line_params[line_idx]->first_timeslot,
+#if ((!defined BCMPH_TEST_PCM) || (defined BCMPH_DAHDI_DRIVER))
+            BCMPH_STATUS_ON_HOOK
+#else // BCMPH_TEST_PCM
+            BCMPH_STATUS_OFF_HOOK
+#endif // BCMPH_TEST_PCM
+            , BCMPH_MODE_IDLE);
+      }
+      else {
+         phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+         if (NULL != vl) {
+            phone_line_disable(vl);
+         }
+      }
+   }
+
+   status = phone_dev_zarlink_init_vp_objects(t, country);
+   if (VP_STATUS_SUCCESS == status) {
+#ifndef BCMPH_TEST_PCM
+#ifdef BCMPH_VP_DECODE_PULSE
+      VpOptionPulseModeType pulse_mode;
+#endif // BCMPH_VP_DECODE_PULSE
+      VpOptionEventMaskType event_mask;
+
+      memset(&(event_mask), 0xFF, sizeof(event_mask));
+      event_mask.faults = (~(VP_DEV_EVID_CLK_FLT | VP_DEV_EVID_BAT_FLT
+         | VP_LINE_EVID_THERM_FLT | VP_LINE_EVID_DC_FLT | VP_LINE_EVID_AC_FLT));
+      event_mask.signaling = (~(VP_LINE_EVID_HOOK_OFF | VP_LINE_EVID_HOOK_ON));
+#ifdef BCMPH_VP_DECODE_PULSE
+      event_mask.signaling &= (~(VP_LINE_EVID_PULSE_DIG
+         | VP_LINE_EVID_FLASH | VP_LINE_EVID_EXTD_FLASH));
+      pulse_mode = VP_OPTION_PULSE_DECODE_ON;
+#endif // BCMPH_VP_DECODE_PULSE
+      for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+         phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
+            status = VpSetOption(phone_dev_zarlink_get_line_ctx(t, line_idx),
+               NULL, VP_OPTION_ID_EVENT_MASK, &(event_mask));
+            if (VP_STATUS_SUCCESS != status) {
+               bcm_pr_err("Failed to set event mask (%d)\n", status);
+               break;
+            }
+#ifdef BCMPH_VP_DECODE_PULSE
+            status = VpSetOption(phone_dev_zarlink_get_line_ctx(t, line_idx),
+               NULL, VP_OPTION_ID_PULSE_MODE, &(pulse_mode));
+            if (VP_STATUS_SUCCESS != status) {
+               bcm_pr_err("Failed to set pulse mode (%d)\n", status);
+               break;
+            }
+#endif // BCMPH_VP_DECODE_PULSE
+            status = phone_dev_zarlink_get_hook_status(t, line_idx);
+            if (VP_STATUS_SUCCESS != status) {
+               break;
+            }
+            // We force an immediate mode change to be in a consistent state
+            vl->line_state.mode = BCMPH_MODE_UNSPECIFIED;
+            vl->new_mode = BCMPH_MODE_IDLE;
+            vl->new_tone = bcm_phone_line_tone_code_index(BCMPH_TONE_NONE);
+            phone_dev_zarlink_update_line(t, line_idx);
+            vl->line_state_changed = false;
+            bcm_phone_line_state_reset_change_counts(&(vl->line_state));
+         }
+         t->lines[line_idx].tone_cadencer.off_time = 0;
+         t->lines[line_idx].mode_cadencer.off_time = 0;
+      }
+      if (line_idx < ARRAY_SIZE(t->lines)) {
+         ret = -1;
+         for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+            phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+            if ((NULL != vl) && (phone_line_is_enabled(vl))) {
+               phone_line_disable(vl);
+            }
+         }
+         phone_dev_zarlink_deinit_vp_objects(t);
+      }
+      else {
+#endif // !BCMPH_TEST_PCM
+         phone_device_start(&(t->vd), country);
+         t->line_update_timer = phone_device_get_tick_period(&(t->vd));
+#ifndef BCMPH_TEST_PCM
+      }
+#endif // !BCMPH_TEST_PCM
+   }
+   else {
+      bcm_pr_err("Failed to configure zarlink device\n");
+      ret = -1;
+      for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+         phone_line_t *vl = phone_device_get_line(&(t->vd), line_idx);
+         if ((NULL != vl) && (phone_line_is_enabled(vl))) {
+            phone_line_disable(vl);
+         }
+      }
+   }
+
+   return (ret);
 }
 
 #ifdef VP_CC_880_SERIES
@@ -1945,7 +2014,7 @@ int __init phone_dev_zarlink_ve880_init(phone_dev_zarlink_ve880_t *t,
 {
    int ret = 0;
 
-   bcm_pr_debug("phone_dev_zarlink_ve880_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert((NULL != vtbl) && (NULL != dev_desc)
       && (VP_DEV_880_SERIES == dev_desc->parameters.zarlink->type));
 
@@ -2012,12 +2081,14 @@ int __init phone_dev_zarlink_ve880_init(phone_dev_zarlink_ve880_t *t,
 
 void phone_dev_zarlink_ve880_deinit(phone_dev_zarlink_ve880_t *t)
 {
-   bcm_pr_debug("phone_dev_zarlink_ve880_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
    phone_dev_zarlink_deinit(&(t->vdz));
    bcm_mpi_deinit(&(t->mpi));
 }
 
 #ifdef BCMPH_DEBUG
+
+#ifndef BCMPH_NOHW
 static zarlink_cmd_desc_t ve880_read_dev_registers[] = {
    { VP880_XR_CS_RD, VP880_XR_CS_LEN }, /* 0x45, 1 */
    { VP880_MCLK_CNT_RD, VP880_MCLK_CNT_LEN }, /* 0x47, 1 */
@@ -2059,6 +2130,7 @@ static zarlink_cmd_desc_t ve880_read_line_registers[] = {
    { VP880_REGULATOR_CTRL_RD, VP880_REGULATOR_CTRL_LEN }, /* 0xE7, 1 */
    { VP880_CID_PARAM_RD, VP880_CID_PARAM_LEN }, /* 0xEB, 1 */
 };
+#endif // !BCMPH_NOHW
 
 void phone_dev_zarlink_ve880_pr_regs(phone_dev_zarlink_ve880_t *t)
 {
@@ -2083,7 +2155,7 @@ int phone_dev_zarlink_ve880_start(phone_device_t *d,
    int ret = 0;
    phone_dev_zarlink_ve880_t *t = container_of(d, phone_dev_zarlink_ve880_t, vdz.vd);
 
-   bcm_pr_debug("phone_dev_zarlink_ve880_start(country=%d, line_count=%lu)\n",
+   bcm_pr_debug("%s(country=%d, line_count=%lu)\n", __func__,
       (int)(country), (unsigned long)(line_count));
    bcm_assert((NULL != line_params) && (line_count > 0));
    phone_dev_zarlink_ve880_stop(d);
@@ -2099,7 +2171,7 @@ int phone_dev_zarlink_ve880_start(phone_device_t *d,
 
 void phone_dev_zarlink_ve880_stop(phone_device_t *d)
 {
-   bcm_pr_debug("phone_dev_zarlink_ve880_stop()\n");
+   bcm_pr_debug("%s()\n", __func__);
    if (phone_device_is_started(d)) {
       phone_dev_zarlink_ve880_t *t = container_of(d, phone_dev_zarlink_ve880_t, vdz.vd);
 #ifdef BCMPH_DEBUG_MPI

@@ -5,16 +5,15 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __BOARD_H__
 #define __BOARD_H__
 
 #include "config.h"
 
-#ifdef __KERNEL__
-#include <linux/clk.h>
-#else // !__KERNEL__
-#include "fake_kernel.h"
-#endif // !__KERNEL__
+#ifndef BCMPH_NOHW
+# include <extern/linux/clk.h>
+#endif // !BCMPH_NOHW
 
 #include "bcm63xx_phone.h"
 
@@ -48,9 +47,9 @@ typedef struct {
 } pcm_desc_t;
 
 typedef enum {
-	BCMPH_LIN_NONE,
-	BCMPH_LIN_FXS,
-	BCMPH_LIN_FXO
+   BCMPH_LIN_NONE,
+   BCMPH_LIN_FXS,
+   BCMPH_LIN_FXO
 } phone_line_type_t;
 
 typedef struct {
@@ -109,7 +108,7 @@ enum {
    BCMPH_CAPS_CAN_MIX_NB_AND_WB = 0x0100,
    // The device can switch lines between narrowband and wideband mode
    // without restarting device
-   // This flag must not be set is flag BCMPH_CAPS_CAN_MIX_NB_AND_WB is
+   // This flag must not be set if flag BCMPH_CAPS_CAN_MIX_NB_AND_WB is
    // not set.
    // For example, for most of Zarlink devices flag is not set because
    // profiles used in narrowband and wideband are not the same
@@ -121,16 +120,15 @@ enum {
 
 typedef struct {
 #ifdef BCMPH_USE_SPI_DRIVER
-   __s16 bus_num;	/* SPI bus num */
+   __s16 bus_num; /* SPI bus num */
+   bool has_exclusive_bus_access; /* The device is the only one to use the bus */
 #endif // BCMPH_USE_SPI_DRIVER
    __u16 cs;      /* SPI chip select of the device */
    __u32 clk;     /* SPI clock speed (SCLK) */
-   bool toggle_cs;  /* If it's necessary to toggle SPI CS between each byte */
-#ifndef BCMPH_USE_SPI_DRIVER
-   __u8 cs_off_time;  /* Minimum time CS must be inactive between subsequent transfers (in SCLK clock cycles) */
+   bool drop_cs_after_each_byte;  /* If it's necessary to toggle SPI CS between each byte */
+   __u8 cs_off_clk_cycles;  /* Minimum time CS must be inactive between subsequent transfers (in SCLK clock cycles) */
    bool wait_completion_with_irq; /* Whether to use irq to wait for end of transfer or simply loop */
    __u8 fill_byte; /* Byte sent by SPI controler when receiving bytes (in half duplex mode) */
-#endif // !BCMPH_USE_SPI_DRIVER
 } bcm_mpi_params_t;
 
 typedef struct {

@@ -5,13 +5,11 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
 
-#ifdef __KERNEL__
-#include <linux/delay.h>
-#else // !__KERNEL__
-#include <stdlib.h>
-#endif // !__KERNEL__
+#include <extern/linux/delay.h>
+#include <extern/linux/slab.h>
 
 #include <mpi.h>
 #include <phone.h>
@@ -25,9 +23,9 @@ void phone_device_init(phone_device_t *t,
    const vtbl_phone_device_t *vtbl,
    const phone_desc_device_t *desc, __u8 tick_period)
 {
-   size_t i;
+   size_t line_idx;
 
-   bcm_pr_debug("phone_device_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((NULL != vtbl) && (NULL != desc)
       && (desc->line_count <= ARRAY_SIZE(t->lines)));
@@ -37,14 +35,14 @@ void phone_device_init(phone_device_t *t,
    t->tick_period = tick_period;
    t->started = false;
    t->country = BCMPH_COUNTRY_ETSI;
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-      t->lines[i] = NULL;
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+      t->lines[line_idx] = NULL;
    }
 }
 
 void phone_device_deinit(phone_device_t *t)
 {
-   bcm_pr_debug("phone_device_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 }
 
 phone_device_t * __init phone_device_alloc(
@@ -52,7 +50,7 @@ phone_device_t * __init phone_device_alloc(
 {
    phone_device_t *ret = NULL;
 
-   bcm_pr_debug("phone_device_alloc()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    switch (dev_desc->type) {
 #ifdef VP_CC_880_SERIES
@@ -104,7 +102,7 @@ phone_device_t * __init phone_device_alloc(
 
 void phone_device_free(phone_device_t *t)
 {
-   bcm_pr_debug("phone_device_free()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    if (NULL != t) {
       void *p = (*(t->vtbl->deinit))(t);

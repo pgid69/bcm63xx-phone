@@ -5,6 +5,7 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __ZARLINK_COMMON_H__
 #define __ZARLINK_COMMON_H__
 
@@ -38,13 +39,16 @@ typedef struct zarlink_device_parameters {
    zarlink_profiles_t profiles;
    struct {
       VpLineStateType on_hook_idle;
+      VpLineStateType on_hook_idle_polrev;
       VpLineStateType on_hook_ringing;
-      struct {
-         __u16 on_time; /* in msec */
-         __u16 off_time; /* in msec */
-      } ring_cadence;
+      VpLineStateType on_hook_ringing_polrev;
+      VpLineStateType on_hook_talking;
+      VpLineStateType on_hook_talking_polrev;
       VpLineStateType off_hook_idle;
+      VpLineStateType off_hook_idle_polrev;
       VpLineStateType off_hook_talking;
+      VpLineStateType off_hook_talking_polrev;
+      VpLineStateType disconnect;
    } modes;
    struct {
       zarlink_tone_t waiting_dial;
@@ -116,7 +120,7 @@ extern void phone_dev_zarlink_deinit(phone_dev_zarlink_t *t);
 static inline void phone_dev_zarlink_init_line(phone_dev_zarlink_t *t,
    size_t index, phone_line_t *vl, void *line_obj, VpLineCtxType *line_ctx)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_init_line(index=%lu)\n", (unsigned long)(index));
+   d_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert((index < ARRAY_SIZE(t->lines))
       && (NULL != vl) && (NULL != line_obj) && (NULL != line_ctx));
    phone_device_init_line(&(t->vd), index, vl);
@@ -127,7 +131,7 @@ static inline void phone_dev_zarlink_init_line(phone_dev_zarlink_t *t,
 static inline void phone_dev_zarlink_deinit_line(phone_dev_zarlink_t *t,
    size_t index)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_deinit_line(index=%lu)\n", (unsigned long)(index));
+   d_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert(index < ARRAY_SIZE(t->lines));
    phone_device_deinit_line(&(t->vd), index);
    t->lines[index].obj = NULL;
@@ -136,32 +140,32 @@ static inline void phone_dev_zarlink_deinit_line(phone_dev_zarlink_t *t,
 
 static inline const zarlink_device_id_t *phone_dev_zarlink_get_device_id(const phone_dev_zarlink_t *t)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_get_device_id()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    return (&(t->device_id));
 }
 
 static inline void *phone_dev_zarlink_get_dev_obj(phone_dev_zarlink_t *t)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_get_dev_obj()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    return (t->dev.obj);
 }
 
 static inline VpDevCtxType *phone_dev_zarlink_get_dev_ctx(phone_dev_zarlink_t *t)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_get_dev_ctx()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
    return (&(t->dev.ctx));
 }
 
 static inline void *phone_dev_zarlink_get_line_obj(phone_dev_zarlink_t *t, size_t index)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_get_line_obj(index=%lu)\n", (unsigned long)(index));
+   d_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert(index < ARRAY_SIZE(t->lines));
    return (t->lines[index].obj);
 }
 
 static inline VpLineCtxType *phone_dev_zarlink_get_line_ctx(phone_dev_zarlink_t *t, size_t index)
 {
-   d_bcm_pr_debug("phone_dev_zarlink_get_line_ctx(index=%lu)\n", (unsigned long)(index));
+   d_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(index));
    bcm_assert(index < ARRAY_SIZE(t->lines));
    return (t->lines[index].ctx);
 }

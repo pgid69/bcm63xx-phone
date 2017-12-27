@@ -5,12 +5,14 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
 #include "config.h"
 
-#include <linux/types.h>
+#include <extern/linux/log2.h>
+#include <extern/linux/types.h>
 
 #ifndef BCMPH_NOHW
 
@@ -63,6 +65,5 @@ static inline size_t round_up_to_next_pow_of_2(size_t addr)
    }
    return (1 << pow);
 }
-
 
 #endif // __UTILS_H__

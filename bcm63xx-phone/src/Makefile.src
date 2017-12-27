@@ -1,0 +1,44 @@
+#
+# Copyright (C) 2015
+# Gilles Mazoyer <mazoyer.gilles@omega.ovh>
+#
+# This is free software, licensed under the GNU General Public License v2.
+# See /LICENSE for more information.
+#
+
+ccflags-y += -Wall -I$(SUBDIRS)/inc
+#ccflags-y += -DBCMPH_TEST_PCM
+ifneq ($(strip $(BCMPH_EFLAGS)),)
+ccflags-y += $(BCMPH_EFLAGS)
+endif
+
+ZARLINK_VERSION=2.24.0.lite
+
+ccflags-y += -I$(SUBDIRS)/extern/zarlink/arch/bcm63xx
+ccflags-y += -I$(SUBDIRS)/extern/zarlink/$(ZARLINK_VERSION)/api_lib/includes
+ccflags-y += -I$(SUBDIRS)/extern/zarlink/$(ZARLINK_VERSION)/api_lib/vp880_api
+
+
+MODULE_SRCS += board/board.c
+MODULE_SRCS += inc/bcm63xx_line_state.c
+MODULE_SRCS += inc/bcm63xx_ring_buf.c
+MODULE_SRCS += mpi/mpi.c
+MODULE_SRCS += pcm/pcm.c
+MODULE_SRCS += phone/phone.c
+MODULE_SRCS += phone/phone_mgr.c
+MODULE_SRCS += phone/zarlink/le88221/slic_le88221.c
+MODULE_SRCS += phone/zarlink/le88266/slic_le88266.c
+MODULE_SRCS += phone/zarlink/zarlink_common.c
+MODULE_SRCS += timer/timer.c
+MODULE_SRCS += wait_queue/wait_queue.c
+MODULE_SRCS += $(subst $(SUBDIRS)/,,$(wildcard $(SUBDIRS)/phone/zarlink/profiles/*.c))
+MODULE_SRCS += $(subst $(SUBDIRS)/,,$(wildcard $(SUBDIRS)/extern/zarlink/$(ZARLINK_VERSION)/api_lib/vp880_api/*.c))
+MODULE_SRCS += $(subst $(SUBDIRS)/,,$(wildcard $(SUBDIRS)/extern/zarlink/$(ZARLINK_VERSION)/api_lib/common/*.c))
+MODULE_SRCS += $(subst $(SUBDIRS)/,,$(wildcard $(SUBDIRS)/extern/zarlink/arch/bcm63xx/*.c))
+
+MODULE_OBJS := $(patsubst %.c,%.o,$(MODULE_SRCS))
+
+obj-m := module.o
+
+module-objs := $(MODULE_OBJS)
+module-objs += main.o main_dahdi.o main_driver.o common.o debug.o

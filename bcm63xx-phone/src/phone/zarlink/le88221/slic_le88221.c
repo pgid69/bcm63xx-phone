@@ -7,6 +7,8 @@
  */
 #include <config.h>
 
+#include <extern/linux/errno.h>
+
 #include "slic_le88221.h"
 
 #ifdef VP_CC_880_SERIES
@@ -18,16 +20,16 @@
 
 static void *le88221_deinit(phone_device_t *d)
 {
-   size_t i;
+   size_t line_idx;
    phone_dev_le88221_t *t = container_of(d, phone_dev_le88221_t, ve880.vdz.vd);
 
-   bcm_pr_debug("le88221_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    phone_dev_zarlink_ve880_stop(&(t->ve880.vdz.vd));
 
-   for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-      phone_dev_zarlink_deinit_line(&(t->ve880.vdz), i);
-      phone_line_deinit(&(t->lines[i].vl));
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+      phone_dev_zarlink_deinit_line(&(t->ve880.vdz), line_idx);
+      phone_line_deinit(&(t->lines[line_idx].vl));
    }
 
    phone_dev_zarlink_ve880_deinit(&(t->ve880));
@@ -49,15 +51,15 @@ int __init phone_dev_le88221_init(phone_dev_le88221_t *t,
    const phone_desc_device_t *dev_desc, __u8 tick_period)
 {
    int ret = 0;
-   size_t i;
+   size_t line_idx;
 
-   bcm_pr_debug("phone_dev_le88221_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert(ARRAY_SIZE(t->lines) <= ARRAY_SIZE(t->ve880.vdz.lines));
 
    bcm_assert((NULL != dev_desc) && (NULL != dev_desc->parameters.zarlink));
-   for (i = 0; (i < dev_desc->line_count); i += 1) {
-      bcm_assert(NULL != dev_desc->lines[i].parameters.zarlink);
+   for (line_idx = 0; (line_idx < dev_desc->line_count); line_idx += 1) {
+      bcm_assert(NULL != dev_desc->lines[line_idx].parameters.zarlink);
    }
 
    do { // Empty loop
@@ -72,12 +74,12 @@ int __init phone_dev_le88221_init(phone_dev_le88221_t *t,
          break;
       }
 
-      for (i = 0; (i < ARRAY_SIZE(t->lines)); i += 1) {
-         phone_line_init(&(t->lines[i].vl));
-         memset(&(t->lines[i].obj), 0, sizeof(t->lines[i].obj));
-         memset(&(t->lines[i].ctx), 0, sizeof(t->lines[i].ctx));
-         phone_dev_zarlink_init_line(&(t->ve880.vdz), i,
-            &(t->lines[i].vl), &(t->lines[i].obj), &(t->lines[i].ctx));
+      for (line_idx = 0; (line_idx < ARRAY_SIZE(t->lines)); line_idx += 1) {
+         phone_line_init(&(t->lines[line_idx].vl));
+         memset(&(t->lines[line_idx].obj), 0, sizeof(t->lines[line_idx].obj));
+         memset(&(t->lines[line_idx].ctx), 0, sizeof(t->lines[line_idx].ctx));
+         phone_dev_zarlink_init_line(&(t->ve880.vdz), line_idx,
+            &(t->lines[line_idx].vl), &(t->lines[line_idx].obj), &(t->lines[line_idx].ctx));
       }
    }
    while (false);

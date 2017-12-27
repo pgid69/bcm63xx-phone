@@ -5,7 +5,10 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
+
+#include <extern/linux/errno.h>
 
 #include <wait_queue.h>
 
@@ -13,7 +16,7 @@ int bcm_wait_queue_wait_event_counter(bcm_wait_queue_t *t, int counter, bcmph_mu
 {
    int ret;
 
-   dd_bcm_pr_debug("bcm_wait_queue_wait_event_counter()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    do { // Empty loop
       if (NULL != lock) {
@@ -45,7 +48,7 @@ int bcm_wait_queue_wait_event_counter_timeout(bcm_wait_queue_t *t, int counter,
 {
    int ret;
 
-   dd_bcm_pr_debug("bcm_wait_queue_wait_event_counter_timeout()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    do { // Empty loop
       if (NULL != lock) {

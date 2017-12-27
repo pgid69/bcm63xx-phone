@@ -5,23 +5,26 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
 
 #ifdef __KERNEL__
-#include <linux/delay.h>
-#include <linux/errno.h>
-#ifdef BCMPH_ENABLE_PCM_INTERRUPTS
-#include <linux/interrupt.h>
-#endif // BCMPH_ENABLE_PCM_INTERRUPTS
-#include <linux/ioport.h>
-#ifdef BCMPH_NOHW
-#include <linux/jiffies.h>
-#endif // BCMPH_NOHW
-#include <linux/kernel.h>
-#include <linux/sched.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
+# ifdef BCMPH_ENABLE_PCM_INTERRUPTS
+#  include <linux/interrupt.h>
+# endif // BCMPH_ENABLE_PCM_INTERRUPTS
+# include <linux/ioport.h>
 #endif // __KERNEL__
+#include <extern/linux/barrier.h>
+#include <extern/linux/delay.h>
+#include <extern/linux/errno.h>
+#ifdef BCMPH_NOHW
+# include <extern/linux/jiffies.h>
+#endif // BCMPH_NOHW
+#include <extern/linux/kernel.h>
+#include <extern/linux/sched.h>
+#include <extern/linux/slab.h>
+#include <extern/linux/stddef.h>
+#include <extern/linux/uaccess.h>
 
 #include <bcm63xx.h>
 #include <bcm63xx_log.h>
@@ -94,13 +97,13 @@ static inline __u32 pcm_readl(const pcm_t *t, __u32 off)
 #else
    ret = io_mem[off >> 2];
 #endif // BCMPH_NOHW
-   dd_bcm_pr_debug("pcm_readl(off=0x%lx) -> 0x%lx\n", (unsigned long)(off), (unsigned long)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%lx\n", __func__, (unsigned long)(off), (unsigned long)(ret));
    return (ret);
 }
 
 static inline void pcm_writel(const pcm_t *t, __u32 val, __u32 off)
 {
-   dd_bcm_pr_debug("pcm_writel(val=0x%lx, off=0x%lx)\n", (unsigned long)(val), (unsigned long)(off));
+   dd_bcm_pr_debug("%s(val=0x%lx, off=0x%lx)\n", __func__, (unsigned long)(val), (unsigned long)(off));
 #ifndef BCMPH_NOHW
    bcm_writel(val, t->base + off);
 #else
@@ -116,13 +119,13 @@ static inline __u32 pcm_dma_readl(const pcm_t *t, __u32 off)
 #else
    ret = io_mem[(off + 256) >> 2];
 #endif // BCMPH_NOHW
-   dd_bcm_pr_debug("pcm_dma_readl(off=0x%lx) -> 0x%lx\n", (unsigned long)(off), (unsigned long)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%lx\n", __func__, (unsigned long)(off), (unsigned long)(ret));
    return (ret);
 }
 
 static inline void pcm_dma_writel(const pcm_t *t, __u32 val, __u32 off)
 {
-   dd_bcm_pr_debug("pcm_dma_writel(val=0x%lx, off=0x%lx)\n", (unsigned long)(val), (unsigned long)(off));
+   dd_bcm_pr_debug("%s(val=0x%lx, off=0x%lx)\n", __func__, (unsigned long)(val), (unsigned long)(off));
 #ifndef BCMPH_NOHW
    bcm_writel(val, t->dma_base + off);
 #else
@@ -138,13 +141,13 @@ static inline __u32 pcm_dmac_readl(const pcm_t *t, __u32 off)
 #else
    ret = io_mem[(off + 512) >> 2];
 #endif // BCMPH_NOHW
-   dd_bcm_pr_debug("pcm_dmac_readl(off=0x%lx) -> 0x%lx\n", (unsigned long)(off), (unsigned long)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%lx\n", __func__, (unsigned long)(off), (unsigned long)(ret));
    return (ret);
 }
 
 static inline void pcm_dmac_writel(const pcm_t *t, __u32 val, __u32 off)
 {
-   dd_bcm_pr_debug("pcm_dmac_writel(val=0x%lx, off=0x%lx)\n", (unsigned long)(val), (unsigned long)(off));
+   dd_bcm_pr_debug("%s(val=0x%lx, off=0x%lx)\n", __func__, (unsigned long)(val), (unsigned long)(off));
 #ifndef BCMPH_NOHW
    bcm_writel(val, t->dmac_base + off);
 #else
@@ -160,13 +163,13 @@ static inline __u32 pcm_dmas_readl(const pcm_t *t, __u32 off)
 #else
    ret = io_mem[(off + 768) >> 2];
 #endif // BCMPH_NOHW
-   dd_bcm_pr_debug("pcm_dmas_readl(off=0x%lx) -> 0x%lx\n", (unsigned long)(off), (unsigned long)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%lx\n", __func__, (unsigned long)(off), (unsigned long)(ret));
    return (ret);
 }
 
 static inline void pcm_dmas_writel(const pcm_t *t, __u32 val, __u32 off)
 {
-   dd_bcm_pr_debug("pcm_dmas_writel(val=0x%lx, 0x%lx)\n", (unsigned long)(val), (unsigned long)(off));
+   dd_bcm_pr_debug("%s(val=0x%lx, 0x%lx)\n", __func__, (unsigned long)(val), (unsigned long)(off));
 #ifndef BCMPH_NOHW
    bcm_writel(val, t->dmas_base + off);
 #else
@@ -180,7 +183,7 @@ static void pcm_give_one_rx_buf_to_dma(pcm_t *t)
    __u32 len_stat;
    pcm_dma_desc_t *desc;
 
-   dd_bcm_pr_debug("pcm_give_a_rx_buf_to_dma() : %lu\n", (unsigned long)(t->rx_dirty_desc));
+   dd_bcm_pr_debug("%s() : %lu\n", __func__, (unsigned long)(t->rx_dirty_desc));
 
    bcm_assert(t->rx_desc_cnt_owned < t->rx_ring_size);
 
@@ -220,7 +223,7 @@ static void pcm_give_one_rx_buf_to_dma(pcm_t *t)
 
 static inline void pcm_rx_curr_buffer_handled(pcm_t *t)
 {
-   dd_bcm_pr_debug("pcm_rx_curr_buffer_handled(index=%lu)\n", (unsigned long)(t->rx_curr_desc));
+   dd_bcm_pr_debug("%s(index=%lu)\n", __func__, (unsigned long)(t->rx_curr_desc));
 
    bcm_assert((!t->dma_is_started)
       || ((t->rx_curr_desc == t->rx_dirty_desc)
@@ -247,7 +250,7 @@ static void pcm_loopback_buffers(pcm_t *t)
    size_t buffer_count;
    unsigned long now;
 
-   dd_bcm_pr_debug("pcm_loopback_buffers()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    do { /* Empty loop */
       if (!t->dma_is_started) {
@@ -304,11 +307,7 @@ static void pcm_loopback_buffers(pcm_t *t)
          buffer_count = i;
       }
 
-#ifdef __KERNEL__
-      now = jiffies;
-#else // !__KERNEL__
       now = get_jiffies();
-#endif // !__KERNEL__
       i = 0;
       while (i < buffer_count) {
          size_t len;
@@ -331,7 +330,7 @@ static void pcm_loopback_buffers(pcm_t *t)
             break;
          }
 
-         // Transfer the buffer in rx if it's possible
+         // Transfer the buffer in RX
          len = ((desc_tx->len_stat & DMADESC_LENGTH_MASK) >> DMADESC_LENGTH_SHIFT);
          if (len > t->rx_data_buffer_rounded_size) {
             len = t->rx_data_buffer_rounded_size;
@@ -377,7 +376,7 @@ size_t pcm_get_cnt_rx_buffer_really_owned(pcm_t *t)
    size_t ret;
    size_t curr_desc;
 
-   dd_bcm_pr_debug("pcm_get_cnt_rx_buffer_really_owned()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
 #ifdef BCMPH_NOHW
    pcm_loopback_buffers(t);
@@ -423,7 +422,7 @@ static size_t pcm_get_size_next_valid_rx_buffer(pcm_t *t, size_t *buffer_count)
 {
    size_t ret = 0;
 
-   dd_bcm_pr_debug("pcm_get_size_next_valid_rx_buffer()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
 #ifdef BCMPH_NOHW
    pcm_loopback_buffers(t);
@@ -504,17 +503,20 @@ static size_t pcm_get_size_next_valid_rx_buffer(pcm_t *t, size_t *buffer_count)
 static inline void pcm_rx_handle_curr_buffer(pcm_t *t, size_t frame_count,
    void (*receive_cb)(pcm_t *t, const __u8 *data, size_t data_len))
 {
+#ifdef BCMPH_TEST_PCM
    pcm_dma_desc_t *desc;
+#endif // !BCMPH_TEST_PCM
 #ifndef BCMPH_NOHW
    dma_addr_t address;
 #endif // !BCMPH_NOHW
    const __u8 *src;
-   size_t i;
+   size_t frame;
    size_t len = (frame_count * t->max_frame_size);
 
-   dd_bcm_pr_debug("pcm_rx_handle_curr_buffer(frame_count=%lu)\n",
+   dd_bcm_pr_debug("%s(frame_count=%lu)\n", __func__,
       (unsigned long)(frame_count));
 
+#ifdef BCMPH_TEST_PCM
    desc = &(t->rx_cpu_desc[t->rx_curr_desc]);
    /*
     We must call rmb() (barrier() is not enough because it's not a
@@ -523,7 +525,6 @@ static inline void pcm_rx_handle_curr_buffer(pcm_t *t, size_t frame_count,
    */
    rmb();
 
-#ifdef BCMPH_TEST_PCM
    if (desc->len_stat & DMADESC_SOP_MASK) {
       t->stats.rx_sop += 1;
    }
@@ -541,7 +542,7 @@ static inline void pcm_rx_handle_curr_buffer(pcm_t *t, size_t frame_count,
    dma_sync_single_for_cpu(t->dev, address, t->rx_data_buffer_size, DMA_FROM_DEVICE);
 #endif // !BCMPH_NOHW
    src = &(t->rx_cpu_data[t->rx_curr_desc * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)]);
-   for (i = 0; (i < frame_count); i += 1) {
+   for (frame = 0; (frame < frame_count); frame += 1) {
       (*(receive_cb))(t, src, t->frame_size);
       src += t->max_frame_size;
    }
@@ -579,7 +580,7 @@ size_t pcm_rx_reclaim(pcm_t *t,
 {
    size_t frames_not_copied = frame_count;
 
-   dd_bcm_pr_debug("pcm_rx_reclaim(frame_count=%lu)\n",
+   dd_bcm_pr_debug("%s(frame_count=%lu)\n", __func__,
      (unsigned long)(frame_count));
 
    d_bcm_assert(NULL != receive_cb);
@@ -609,6 +610,36 @@ size_t pcm_rx_reclaim(pcm_t *t,
 }
 
 /*
+ * Handle one non empty buffer of data from rx queue.
+ * For each frame of a buffer, call receive_cb to store data
+ * Returns the number of frames read in the buffer
+ */
+size_t pcm_receive_one_buffer(pcm_t *t,
+   void (*receive_cb)(pcm_t *t, const __u8 *data, size_t data_len))
+{
+   size_t ret;
+   size_t buffer_count;
+   size_t len;
+
+   dd_bcm_pr_debug("%s()\n", __func__);
+
+   d_bcm_assert(NULL != receive_cb);
+
+   // Testing rx_desc_cnt_owned is useless because done in pcm_get_size_next_valid_rx_buffer()
+   buffer_count = t->rx_ring_size;
+   len = pcm_get_size_next_valid_rx_buffer(t, &(buffer_count));
+   if (0 == len) {
+      ret = 0;
+   }
+   else {
+      ret = (len / t->max_frame_size);
+      pcm_rx_handle_curr_buffer(t, ret, receive_cb);
+   }
+
+   return (ret);
+}
+
+/*
  * Handle at most frame_count frames of data from rx queue.
  * For each frame of a buffer, call receive_cb to store data
  * Returns the number of frames read
@@ -620,7 +651,7 @@ size_t pcm_receive(pcm_t *t,
    size_t buffer_count;
    size_t frames_not_copied = frame_count;
 
-   dd_bcm_pr_debug("pcm_receive(frame_count=%lu)\n",
+   dd_bcm_pr_debug("%s(frame_count=%lu)\n", __func__,
      (unsigned long)(frame_count));
 
    d_bcm_assert(NULL != receive_cb);
@@ -652,16 +683,11 @@ size_t pcm_receive(pcm_t *t,
 #ifdef BCMPH_NOHW
 static inline void pcm_set_desc_jiffies(pcm_t *t, pcm_dma_desc_t *desc)
 {
-#ifdef __KERNEL__
-   desc->jiffies = jiffies;
-#else // !__KERNEL__
-   desc->jiffies = get_jiffies();
-#endif // !__KERNEL__
-   if (time_after(t->prev_jiffies, desc->jiffies)) {
-      desc->jiffies = t->prev_jiffies;
-   }
-   desc->jiffies += msecs_to_jiffies(t->board_desc->phone_desc->tick_period * 3);
-   t->prev_jiffies = desc->jiffies;
+   unsigned long now = get_jiffies();
+
+   bcm_period_inc(&(t->timestamp));
+   bcm_period_inc_to_jiffies(&(t->timestamp), now);
+   desc->jiffies = t->timestamp.expires_in_jiffies;
 }
 #endif // BCMPH_NOHW
 
@@ -671,7 +697,7 @@ static void pcm_refill_tx(pcm_t *t)
 {
    size_t count;
 
-   dd_bcm_pr_debug("pcm_refill_tx()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    // We compute the number of buffer filled that we can give to DMA
    bcm_assert(t->tx_ring_size >= (t->tx_desc_cnt_owned + t->tx_desc_cnt_empty));
@@ -737,7 +763,7 @@ size_t pcm_tx_reclaim(pcm_t *t, size_t buffer_count)
 {
    size_t released = 0;
 
-   dd_bcm_pr_debug("pcm_tx_reclaim(buffer_count=%lu)\n",
+   dd_bcm_pr_debug("%s(buffer_count=%lu)\n", __func__,
      (unsigned long)(buffer_count));
 
 #ifdef BCMPH_NOHW
@@ -797,22 +823,20 @@ size_t pcm_tx_reclaim(pcm_t *t, size_t buffer_count)
 }
 
 /*
- * Handle at most frame_count frames of data from tx queue.
+ * Handle at most one buffer of data from tx queue.
  * For each frame, call send_cb to get data
  * Returns the number of frames written
  */
-size_t pcm_send(pcm_t *t,
-   bool (*send_cb)(pcm_t *t, __u8 *data, size_t data_len),
-   size_t frame_count)
+size_t pcm_send_one_buffer(pcm_t *t,
+   void (*send_cb)(pcm_t *t, __u8 *data, size_t data_len))
 {
-   size_t frames_not_copied = frame_count;
+   size_t ret = 0;
 
-   dd_bcm_pr_debug("pcm_send(frame_count=%lu)\n",
-     (unsigned long)(frame_count));
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    d_bcm_assert(NULL != transmit_cb);
 
-   while (frame_count > 0) {
+   if (pcm_can_send_one_buffer(t)) {
       size_t len;
       pcm_dma_desc_t *desc;
 #ifndef BCMPH_NOHW
@@ -820,17 +844,6 @@ size_t pcm_send(pcm_t *t,
 #endif // !BCMPH_NOHW
       __u8 *dst;
       __u32 len_stat;
-
-      // we reclaim at least 2 buffers so that if it succeeds, the
-      // condition (t->tx_desc_cnt_empty <= 0)
-      // will be false at the end of the loop
-      pcm_tx_reclaim(t, 2);
-
-      /* make sure the TX hw queue is not full */
-      if (t->tx_desc_cnt_empty <= 0) {
-         dd_bcm_pr_debug("No TX buffer available\n");
-         break;
-      }
 
       /* point to the next available desc */
       desc = &(t->tx_cpu_desc[t->tx_curr_desc]);
@@ -852,17 +865,10 @@ size_t pcm_send(pcm_t *t,
       len = 0;
       // Copy t->frame_size bytes
       for (;;) {
-         if (!(*(send_cb))(t, dst, t->frame_size)) {
-            // Stop transmission
-            frame_count = 0;
-            break;
-         }
+         (*(send_cb))(t, dst, t->frame_size);
          dst += t->max_frame_size;
          len += t->max_frame_size;
-         frame_count -= 1;
-         if (frame_count <= 0) {
-            break;
-         }
+         ret += 1;
          if ((len + t->max_frame_size) > t->tx_data_buffer_rounded_size) {
             break;
          }
@@ -870,10 +876,6 @@ size_t pcm_send(pcm_t *t,
 #ifndef BCMPH_NOHW
       dma_sync_single_for_device(t->dev, address, t->tx_data_buffer_size, DMA_TO_DEVICE);
 #endif // !BCMPH_NOHW
-      if (len <= 0) {
-         // No data copied in buffer so buffer is empty
-         break;
-      }
 
 #ifdef BCMPH_TEST_PCM
       if (len < t->stats.min_size_tx_buffer) {
@@ -929,35 +931,64 @@ size_t pcm_send(pcm_t *t,
 
       t->stats.tx_bytes += len;
       t->stats.tx_good += 1;
-   }
 
-   if (t->tx_desc_cnt_empty <= 0) {
-      // We try to reclaim some buffers before setting f_tx_desc_empty
-      // to 0
-      if (pcm_tx_reclaim(t, t->tx_ring_size) <= 0) {
-         int old;
-         /*
-          Set flag f_tx_desc_empty to false and call immediately
-          pcm_tx_reclaim() to eventually update the flag
-          because since the start of the function some buffers may have
-          been transmitted, or worse the transmission of the last buffer
-          to transmit is already finished
-         */
-         old = test_and_clear_bit(BIT_NR_TX_DESC_EMPTY, &(t->bits));
-         if (old) {
-            dd_bcm_pr_debug("Flag 'f_tx_desc_empty' set to false\n");
+      if (t->tx_desc_cnt_empty <= 0) {
+         // We try to reclaim some buffers before setting f_tx_desc_empty
+         // to 0
+         if (pcm_tx_reclaim(t, t->tx_ring_size) <= 0) {
+            int old;
+            /*
+             Set flag f_tx_desc_empty to false and call immediately
+             pcm_tx_reclaim() to eventually update the flag
+             because since the start of the function some buffers may have
+             been transmitted, or worse the transmission of the last buffer
+             to transmit is already finished
+            */
+            old = test_and_clear_bit(BIT_NR_TX_DESC_EMPTY, &(t->bits));
+            if (old) {
+               dd_bcm_pr_debug("Flag 'f_tx_desc_empty' set to false\n");
 #ifdef BCMPH_ENABLE_PCM_INTERRUPTS
-            if (t->dma_is_started) {
-               __u32 reg;
-               /* Ack TX interrupts */
-               reg = pcm_dmac_readl(t, PCMDMAC_IR_REG(t->tx_chan));
-               pcm_dmac_writel(t, reg, PCMDMAC_IR_REG(t->tx_chan));
-               // Enable TX interrupts
-               pcm_dmac_writel(t, PCMDMAC_IR_BUFDONE_MASK | PCMDMAC_IR_PKTDONE_MASK, PCMDMAC_IRMASK_REG(t->tx_chan));
-            }
+               if (t->dma_is_started) {
+                  __u32 reg;
+                  /* Ack TX interrupts */
+                  reg = pcm_dmac_readl(t, PCMDMAC_IR_REG(t->tx_chan));
+                  pcm_dmac_writel(t, reg, PCMDMAC_IR_REG(t->tx_chan));
+                  // Enable TX interrupts
+                  pcm_dmac_writel(t, PCMDMAC_IR_BUFDONE_MASK | PCMDMAC_IR_PKTDONE_MASK, PCMDMAC_IRMASK_REG(t->tx_chan));
+               }
 #endif // BCMPH_ENABLE_PCM_INTERRUPTS
+            }
          }
       }
+   }
+
+   return (ret);
+}
+
+/*
+ * Handle at most frame_count frames of data from tx queue.
+ * For each frame, call send_cb to get data
+ * Returns the number of frames written
+ */
+size_t pcm_send(pcm_t *t,
+   void (*send_cb)(pcm_t *t, __u8 *data, size_t data_len),
+   size_t frame_count)
+{
+   size_t frames_not_copied = frame_count;
+   size_t max_frames = pcm_get_max_frame_tx_buffer(t);
+
+   dd_bcm_pr_debug("%s(frame_count=%lu)\n", __func__,
+     (unsigned long)(frame_count));
+
+   d_bcm_assert(NULL != transmit_cb);
+
+   while (frame_count >= max_frames) {
+      size_t tmp = pcm_send_one_buffer(t, send_cb);
+      if (tmp <= 0) {
+         break;
+      }
+      bcm_assert(tmp == max_frames);
+      frame_count -= tmp;
    }
 
    return (frames_not_copied - frame_count);
@@ -967,7 +998,7 @@ int pcm6358_pll_init(const pcm_t *t)
 {
    __u32 reg;
 
-   bcm_pr_debug("pcm6358_pll_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_pr_debug(" pll_ctrl1=%lx, pll_ctrl2=%lx, pll_ctrl3=%lx\n",
       (unsigned long)(pcm_readl(t, PCM_PLL_CTRL1_REG)),
@@ -1034,7 +1065,7 @@ void pcm6358_pll_deinit(const pcm_t *t)
 {
    __u32 reg;
 
-   bcm_pr_debug("pcm6358_pll_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    // Power down PLL
    reg = pcm_readl(t, PCM_PLL_CTRL1_REG);
@@ -1056,7 +1087,7 @@ int pcm6368_pll_init(const pcm_t *t)
 {
    __u32 reg;
 
-   bcm_pr_debug("pcm6368_pll_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_pr_debug(" pll_ctrl1=%lx, pll_ctrl2=%lx, pll_ctrl3=%lx, pll_ctrl4=%lx\n",
       (unsigned long)(pcm_readl(t, PCM_PLL_CTRL1_REG)),
@@ -1117,7 +1148,7 @@ void pcm6368_pll_deinit(const pcm_t *t)
 {
    __u32 reg;
 
-   bcm_pr_debug("pcm6368_pll_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    /* Apply clock 16 reset */
    reg = pcm_readl(t, PCM_PLL_CTRL1_REG);
@@ -1168,7 +1199,7 @@ static void pcm_timeslot_alloc(const pcm_t *t, __u8 chnum, __u8 ts)
    int ts_register_offset = PCM_SLOT_ALLOC_TBL_REG + ((ts >> 3) << 2);
    __u32 reg;
 
-   bcm_pr_debug("pcm_timeslot_alloc(chnum=%u, timeslot=%u)\n", (unsigned int)(chnum), (unsigned int)(ts));
+   bcm_pr_debug("%s(chnum=%u, timeslot=%u)\n", __func__, (unsigned int)(chnum), (unsigned int)(ts));
 
    reg = pcm_readl(t, ts_register_offset);
    reg &= (~(0xF << bit_offset));
@@ -1182,14 +1213,14 @@ extern uint bcm_drv_param_pcm_ctrl;
 
 static void pcm_regs_reset(pcm_t *t)
 {
-   size_t i;
+   size_t reg_idx;
    __u32 reg;
 #ifndef BCMPH_TEST_PCM
    __u32 mask;
 #endif // !BCMPH_TEST_PCM
    __u32 divider;
 
-   bcm_pr_debug("pcm_regs_reset()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    divider = 0;
    for (;;) {
@@ -1208,6 +1239,7 @@ static void pcm_regs_reset(pcm_t *t)
 
 #ifndef BCMPH_TEST_PCM
    // Bit PCM_FS_FREQ_16_8 must be null : we don't handle 16 kHz frequency
+   bcm_assert(8 == BCMPH_SAMPLES_PER_MS);
    mask = (PCM_SLAVE_SEL | PCM_CLOCK_INV | PCM_FS_INVERT | PCM_FS_LONG | PCM_FS_TRIG | PCM_DATA_OFF | PCM_LSB_FIRST | PCM_EXTCLK_SEL);
    reg = (t->board_desc->phone_desc->pcm_ctrl_reg & mask);
 #else // BCMPH_TEST_PCM
@@ -1230,8 +1262,8 @@ static void pcm_regs_reset(pcm_t *t)
    pcm_writel(t, 0, PCM_CHAN_CTRL_REG);
 
    // Clear time slot allocation table
-   for (i = 0; (i < PCM_MAX_TIMESLOT_REGS); i += 1) {
-      pcm_writel(t, 0, PCM_SLOT_ALLOC_TBL_REG + (i << 2));
+   for (reg_idx = 0; (reg_idx < PCM_MAX_TIMESLOT_REGS); reg_idx += 1) {
+      pcm_writel(t, 0, PCM_SLOT_ALLOC_TBL_REG + (reg_idx << 2));
    }
 
    /* Disable PCM interrupts */
@@ -1244,7 +1276,7 @@ static void pcm_regs_reset(pcm_t *t)
 
 static int pcm_regs_init(pcm_t *t)
 {
-   bcm_pr_debug("pcm_regs_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    t->timeslot_is_16bits = false;
    t->frame_size = 0;
@@ -1256,7 +1288,7 @@ static int pcm_regs_init(pcm_t *t)
 
 static void pcm_regs_deinit(pcm_t *t)
 {
-   bcm_pr_debug("pcm_regs_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    pcm_regs_reset(t);
    t->frame_size = 0;
@@ -1294,7 +1326,7 @@ static irqreturn_t pcm_isr_dma_rx(int irq, void *dev_id)
    __u32 reg;
    int old;
 
-   d_bcm_pr_debug("pcm_isr_dma_rx()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
 
    /* Mask RX interrupts */
    pcm_dmac_writel(t, 0, PCMDMAC_IRMASK_REG(t->rx_chan));
@@ -1317,7 +1349,7 @@ static irqreturn_t pcm_isr_dma_tx(int irq, void *dev_id)
    __u32 reg;
    int old;
 
-   d_bcm_pr_debug("pcm_isr_dma_tx()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
 
    /* Mask TX interrupts */
    pcm_dmac_writel(t, 0, PCMDMAC_IRMASK_REG(t->tx_chan));
@@ -1337,28 +1369,28 @@ static irqreturn_t pcm_isr_dma_tx(int irq, void *dev_id)
 
 static void pcm_dma_rx_descs_reset(pcm_t *t)
 {
-   size_t i;
+   size_t desc_idx;
 
-   bcm_pr_debug("pcm_dma_rx_descs_reset()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    // Erase all pending data not read and initialize ring buffer for RX
 #if (RSV_DATA_BUFFER_LEN == 0)
    memset(t->rx_cpu_data, 0, sizeof(__u8) * t->rx_data_buffer_size  * t->rx_ring_size);
 #endif
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
       __u32 len_stat;
 
 #if (RSV_DATA_BUFFER_LEN > 0)
-      memset(&(t->rx_cpu_data[i * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)]), 0, t->rx_data_buffer_size);
+      memset(&(t->rx_cpu_data[desc_idx * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)]), 0, t->rx_data_buffer_size);
 #endif
       // Do not set DMADESC_OWNER_MASK now.
       // It will be done just before starting DMA
       len_stat = (t->rx_data_buffer_rounded_size << DMADESC_LENGTH_SHIFT);
-      if ((i + 1) == t->rx_ring_size) {
+      if ((desc_idx + 1) == t->rx_ring_size) {
          len_stat |= DMADESC_WRAP_MASK;
       }
-      t->rx_cpu_desc[i].address = t->rx_dma_addr[i];
-      t->rx_cpu_desc[i].len_stat = len_stat;
+      t->rx_cpu_desc[desc_idx].address = t->rx_dma_addr[desc_idx];
+      t->rx_cpu_desc[desc_idx].len_stat = len_stat;
    }
    t->rx_desc_cnt_owned = 0;
    t->rx_dirty_desc = 0;
@@ -1368,9 +1400,9 @@ static void pcm_dma_rx_descs_reset(pcm_t *t)
 
 static void pcm_dma_tx_descs_reset(pcm_t *t)
 {
-   size_t i;
+   size_t desc_idx;
 
-   bcm_pr_debug("pcm_dma_tx_descs_reset()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    // Erase all pending data not transmitted, so we can start filling TX buffer
    // before starting PCM
@@ -1378,19 +1410,19 @@ static void pcm_dma_tx_descs_reset(pcm_t *t)
 #if (RSV_DATA_BUFFER_LEN == 0)
    memset(t->tx_cpu_data, 0, sizeof(__u8) * t->tx_data_buffer_size * t->tx_ring_size);
 #endif
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
       __u32 len_stat;
 
 #if (RSV_DATA_BUFFER_LEN > 0)
-      memset(&(t->tx_cpu_data[i * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)]), 0, t->tx_data_buffer_size);
+      memset(&(t->tx_cpu_data[desc_idx * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)]), 0, t->tx_data_buffer_size);
 #endif
       len_stat = (DMADESC_SOP_MASK | DMADESC_EOP_MASK);
       // Do not set DMADESC_OWNER_MASK as there is nothing to transmit
-      if ((i + 1) == t->tx_ring_size) {
+      if ((desc_idx + 1) == t->tx_ring_size) {
          len_stat |= DMADESC_WRAP_MASK;
       }
-      t->tx_cpu_desc[i].address = t->tx_dma_addr[i];
-      t->tx_cpu_desc[i].len_stat = len_stat;
+      t->tx_cpu_desc[desc_idx].address = t->tx_dma_addr[desc_idx];
+      t->tx_cpu_desc[desc_idx].len_stat = len_stat;
    }
    t->tx_desc_cnt_owned = 0;
    t->tx_desc_cnt_empty = t->tx_ring_size;
@@ -1402,7 +1434,7 @@ static void pcm_dma_tx_descs_reset(pcm_t *t)
 // Do NOT call when pcm dma is stopped
 static inline void pcm_refill_rx(pcm_t *t)
 {
-   d_bcm_pr_debug("pcm_refill_rx()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    while (t->rx_desc_cnt_owned < t->rx_ring_size) {
       pcm_give_one_rx_buf_to_dma(t);
@@ -1413,7 +1445,7 @@ static inline void pcm_refill_rx(pcm_t *t)
 
 void pcm_dma_start(pcm_t *t)
 {
-   bcm_pr_debug("pcm_dma_start()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    if (t->is_started) {
 
@@ -1447,6 +1479,10 @@ void pcm_dma_start(pcm_t *t)
 
       t->dma_is_started = true;
 
+#ifdef BCMPH_NOHW
+      bcm_period_set_period(&(t->timestamp), pcm_get_time_to_receive_rx_buffer(t));
+#endif // BCMPH_NOHW
+
       // Give RX buffers to DMA
       pcm_refill_rx(t);
 
@@ -1467,7 +1503,7 @@ void pcm_dma_start(pcm_t *t)
 
 void pcm_dma_stop(pcm_t *t)
 {
-   bcm_pr_debug("pcm_dma_stop()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    if (t->is_started) {
       /*
@@ -1494,12 +1530,12 @@ void pcm_dma_stop(pcm_t *t)
 static int pcm_dma_init(pcm_t *t)
 {
    int ret;
-   size_t i;
+   size_t desc_idx;
    size_t size;
    __u8 *p;
    __u32 reg;
 
-   bcm_pr_debug("pcm_dma_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    // Init DMA registers
    pcm_dma_writel(t, 0, PCMDMA_CFG_REG);
@@ -1581,18 +1617,18 @@ static int pcm_dma_init(pcm_t *t)
    t->tx_cpu_data = p;
 
 #if (RSV_DATA_BUFFER_LEN > 0)
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
       size_t j;
-      p = &(t->rx_cpu_data[(i * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->rx_data_buffer_size]);
+      p = &(t->rx_cpu_data[(desc_idx * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->rx_data_buffer_size]);
       for (j = 0; (j < RSV_DATA_BUFFER_LEN); j += 1) {
-         p[j] = 0x75 + i + j;
+         p[j] = 0x75 + desc_idx + j;
       }
    }
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
       size_t j;
-      p = &(t->tx_cpu_data[(i * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->tx_data_buffer_size]);
+      p = &(t->tx_cpu_data[(desc_idx * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->tx_data_buffer_size]);
       for (j = 0; (j < RSV_DATA_BUFFER_LEN); j += 1) {
-         p[j] = 0xB9 + i + j;
+         p[j] = 0xB9 + desc_idx + j;
       }
    }
 #endif
@@ -1616,44 +1652,44 @@ static int pcm_dma_init(pcm_t *t)
 #ifndef BCMPH_NOHW
    /* initialize descriptors addresses */
    bcm_pr_debug("Mapping DMA addresses of RX descs\n");
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
-       t->rx_dma_addr[i] = dma_map_single(t->dev,
-         &(t->rx_cpu_data[i * t->rx_data_buffer_size]),
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
+       t->rx_dma_addr[desc_idx] = dma_map_single(t->dev,
+         &(t->rx_cpu_data[desc_idx * t->rx_data_buffer_size]),
          t->rx_data_buffer_size, DMA_FROM_DEVICE);
-      if (dma_mapping_error(t->dev, t->rx_dma_addr[i])) {
+      if (dma_mapping_error(t->dev, t->rx_dma_addr[desc_idx])) {
          size_t j;
-         for (j = 0; (j < i); j += 1) {
+         for (j = 0; (j < desc_idx); j += 1) {
             dma_unmap_single(t->dev, t->rx_dma_addr[j],
                t->rx_data_buffer_size, DMA_FROM_DEVICE);
          }
-         bcm_pr_err("Fail to map DMA address for RX data buffer %u", (unsigned int)(i));
+         bcm_pr_err("Fail to map DMA address for RX data buffer %u", (unsigned int)(desc_idx));
          goto fail_map_rx;
       }
-      t->rx_cpu_desc[i].address = t->rx_dma_addr[i];
+      t->rx_cpu_desc[desc_idx].address = t->rx_dma_addr[desc_idx];
    }
 
    bcm_pr_debug("Mapping DMA addresses of TX descs\n");
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
-      t->tx_dma_addr[i] = dma_map_single(t->dev,
-         &(t->tx_cpu_data[i * t->tx_data_buffer_size]),
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
+      t->tx_dma_addr[desc_idx] = dma_map_single(t->dev,
+         &(t->tx_cpu_data[desc_idx * t->tx_data_buffer_size]),
          t->tx_data_buffer_size, DMA_TO_DEVICE);
-      if (dma_mapping_error(t->dev, t->tx_dma_addr[i])) {
+      if (dma_mapping_error(t->dev, t->tx_dma_addr[desc_idx])) {
          size_t j;
-         for (j = 0; (j < i); j += 1) {
+         for (j = 0; (j < desc_idx); j += 1) {
             dma_unmap_single(t->dev, t->tx_dma_addr[j],
                t->tx_data_buffer_size, DMA_TO_DEVICE);
          }
-         bcm_pr_err("Fail to map DMA address for TX data buffer %u", (unsigned int)(i));
+         bcm_pr_err("Fail to map DMA address for TX data buffer %u", (unsigned int)(desc_idx));
          goto fail_map_tx;
       }
-      t->tx_cpu_desc[i].address = t->tx_dma_addr[i];
+      t->tx_cpu_desc[desc_idx].address = t->tx_dma_addr[desc_idx];
    }
 #else // BCMPH_NOHW
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
-      t->rx_dma_addr[i] = (dma_addr_t)(&(t->rx_cpu_data[i * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)]));
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
+      t->rx_dma_addr[desc_idx] = (dma_addr_t)(&(t->rx_cpu_data[desc_idx * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)]));
    }
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
-      t->tx_dma_addr[i] = (dma_addr_t)(&(t->tx_cpu_data[i * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)]));
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
+      t->tx_dma_addr[desc_idx] = (dma_addr_t)(&(t->tx_cpu_data[desc_idx * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)]));
    }
 #endif // BCMPH_NOHW
 
@@ -1745,14 +1781,14 @@ fail_irq:
 #endif // BCMPH_TEST_PCM
 #ifndef BCMPH_NOHW
    bcm_pr_debug("Unmapping DMA addresses of TX descs\n");
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
-      dma_unmap_single(t->dev, t->tx_dma_addr[i],
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
+      dma_unmap_single(t->dev, t->tx_dma_addr[desc_idx],
          t->tx_data_buffer_size, DMA_TO_DEVICE);
    }
 fail_map_tx:
    bcm_pr_debug("Unmapping DMA addresses of RX descs\n");
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
-      dma_unmap_single(t->dev, t->rx_dma_addr[i],
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
+      dma_unmap_single(t->dev, t->rx_dma_addr[desc_idx],
          t->rx_data_buffer_size, DMA_FROM_DEVICE);
    }
 fail_map_rx:
@@ -1793,9 +1829,9 @@ fail_rx_descs:
 static void pcm_dma_deinit(pcm_t *t)
 {
 #if (!defined BCMPH_NOHW) || (RSV_DATA_BUFFER_LEN > 0)
-   size_t i;
+   size_t desc_idx;
 #endif // !BCMPH_NOHW  || (RSV_DATA_BUFFER_LEN > 0)
-   bcm_pr_debug("pcm_dma_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
 #ifdef BCMPH_ENABLE_PCM_INTERRUPTS
    /* Frees irqs */
@@ -1818,13 +1854,13 @@ static void pcm_dma_deinit(pcm_t *t)
 
 #ifndef BCMPH_NOHW
    bcm_pr_debug("Unmapping DMA addresses of TX descs\n");
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
-      dma_unmap_single(t->dev, t->tx_dma_addr[i],
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
+      dma_unmap_single(t->dev, t->tx_dma_addr[desc_idx],
          t->tx_data_buffer_size, DMA_TO_DEVICE);
    }
    bcm_pr_debug("Unmapping DMA addresses of RX descs\n");
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
-      dma_unmap_single(t->dev, t->rx_dma_addr[i],
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
+      dma_unmap_single(t->dev, t->rx_dma_addr[desc_idx],
          t->rx_data_buffer_size, DMA_FROM_DEVICE);
    }
 #endif // !BCMPH_NOHW
@@ -1842,21 +1878,21 @@ static void pcm_dma_deinit(pcm_t *t)
    pcm_dmas_writel(t, 0, PCMDMAS_SRAM4_REG(t->tx_chan));
 
 #if (RSV_DATA_BUFFER_LEN > 0)
-   for (i = 0; (i < t->rx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->rx_ring_size); desc_idx += 1) {
       size_t j;
-      __u8 *p = &(t->rx_cpu_data[(i * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->rx_data_buffer_size]);
+      __u8 *p = &(t->rx_cpu_data[(desc_idx * (t->rx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->rx_data_buffer_size]);
       for (j = 0; (j < RSV_DATA_BUFFER_LEN); j += 1) {
-         if (p[j] != (0x75 + i + j)) {
+         if (p[j] != (0x75 + desc_idx + j)) {
             bcm_assert(0);
             break;
          }
       }
    }
-   for (i = 0; (i < t->tx_ring_size); i += 1) {
+   for (desc_idx = 0; (desc_idx < t->tx_ring_size); desc_idx += 1) {
       size_t j;
-      __u8 *p = &(t->tx_cpu_data[(i * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->tx_data_buffer_size]);
+      __u8 *p = &(t->tx_cpu_data[(desc_idx * (t->tx_data_buffer_size + RSV_DATA_BUFFER_LEN)) + t->tx_data_buffer_size]);
       for (j = 0; (j < RSV_DATA_BUFFER_LEN); j += 1) {
-         if (p[j] != (0xB9 + i + j)) {
+         if (p[j] != (0xB9 + desc_idx + j)) {
             bcm_assert(0);
             break;
          }
@@ -1903,7 +1939,7 @@ static int pcm_get_mem_res(pcm_mem_res_t *res, const char *id)
    int ret;
    void __iomem *p;
 
-   bcm_pr_debug("pcm_get_mem_res(id=%s, addr=0x%lx, size=%lu)\n", id, (unsigned long)(res->start), (unsigned long)(res->end - res->start + 1));
+   bcm_pr_debug("%s(id=%s, addr=0x%lx, size=%lu)\n", __func__, id, (unsigned long)(res->start), (unsigned long)(res->end - res->start + 1));
 
    d_bcm_pr_debug("Requesting memory region\n");
    if (!request_mem_region(res->start, res->end - res->start + 1, id)) {
@@ -1933,7 +1969,7 @@ fail_request:
 
 static void pcm_release_mem_res(pcm_mem_res_t *res)
 {
-   bcm_pr_debug("pcm_release_mem_res(addr=0x%lx, size=%lu)\n", (unsigned long)(res->start), (unsigned long)(res->end - res->start + 1));
+   bcm_pr_debug("%s(addr=0x%lx, size=%lu)\n", __func__, (unsigned long)(res->start), (unsigned long)(res->end - res->start + 1));
 
    d_bcm_pr_debug("Making I/O unmap\n");
    iounmap(res->base);
@@ -1947,7 +1983,7 @@ static int pcm_get_shared_res(const board_desc_t *board_desc)
 {
    int ret;
 
-   bcm_pr_debug("pcm_get_shared_res()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    pcm_shared_res.pcm_mem.start = board_desc->pcm_desc->base;
    pcm_shared_res.pcm_mem.end = pcm_shared_res.pcm_mem.start;
@@ -1998,7 +2034,7 @@ fail_get_pcm_mem:
 
 static void pcm_release_shared_res(void)
 {
-   bcm_pr_debug("pcm_release_shared_res()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    pcm_release_mem_res(&(pcm_shared_res.pcm_dmas_mem));
    pcm_release_mem_res(&(pcm_shared_res.pcm_dmac_mem));
@@ -2010,7 +2046,7 @@ static void pcm_release_shared_res(void)
 static inline void pcm_pr_regs(const pcm_t *t)
 {
    bcm_phone_pcm_regs_t regs;
-   size_t i;
+   size_t reg_idx;
 
    pcm_read_regs(t, &(regs));
 
@@ -2024,24 +2060,35 @@ static inline void pcm_pr_regs(const pcm_t *t)
    bcm_pr_debug("pll_ctrl3   = 0x%lx\n", (unsigned long)(regs.pll_ctrl3));
    bcm_pr_debug("pll_ctrl4   = 0x%lx\n", (unsigned long)(regs.pll_ctrl4));
    bcm_pr_debug("pll_stat    = 0x%lx\n", (unsigned long)(regs.pll_stat));
-   for (i = 0; (i < ARRAY_SIZE(regs.slot_alloc_tbl)); i += 1) {
-      bcm_pr_debug("slot_alloc_tbl[%lu] = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.slot_alloc_tbl[i]));
+   for (reg_idx = 0; (reg_idx < ARRAY_SIZE(regs.slot_alloc_tbl)); reg_idx += 1) {
+      bcm_pr_debug("slot_alloc_tbl[%lu] = 0x%lx\n", (unsigned long)(reg_idx), (unsigned long)(regs.slot_alloc_tbl[reg_idx]));
    }
    bcm_pr_debug("dma_cfg = 0x%lx\n", (unsigned long)(regs.dma_cfg));
-   for (i = 0; (i < ARRAY_SIZE(regs.dma_channels)); i += 1) {
-      bcm_pr_debug("dma_channels[%lu].dma_flowcl    = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dma_flowcl));
-      bcm_pr_debug("dma_channels[%lu].dma_flowch    = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dma_flowch));
-      bcm_pr_debug("dma_channels[%lu].dma_bufalloc  = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dma_bufalloc));
+   for (reg_idx = 0; (reg_idx < ARRAY_SIZE(regs.dma_channels)); reg_idx += 1) {
+      bcm_pr_debug("dma_channels[%lu].dma_flowcl    = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dma_flowcl));
+      bcm_pr_debug("dma_channels[%lu].dma_flowch    = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dma_flowch));
+      bcm_pr_debug("dma_channels[%lu].dma_bufalloc  = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dma_bufalloc));
 
-      bcm_pr_debug("dma_channels[%lu].dmac_chancfg  = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmac_chancfg));
-      bcm_pr_debug("dma_channels[%lu].dmac_ir       = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmac_ir));
-      bcm_pr_debug("dma_channels[%lu].dmac_irmask   = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmac_irmask));
-      bcm_pr_debug("dma_channels[%lu].dmac_maxburst = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmac_maxburst));
+      bcm_pr_debug("dma_channels[%lu].dmac_chancfg  = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmac_chancfg));
+      bcm_pr_debug("dma_channels[%lu].dmac_ir       = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmac_ir));
+      bcm_pr_debug("dma_channels[%lu].dmac_irmask   = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmac_irmask));
+      bcm_pr_debug("dma_channels[%lu].dmac_maxburst = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmac_maxburst));
 
-      bcm_pr_debug("dma_channels[%lu].dmas_rstart   = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmas_rstart));
-      bcm_pr_debug("dma_channels[%lu].dmas_sram2    = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmas_sram2));
-      bcm_pr_debug("dma_channels[%lu].dmas_sram3    = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmas_sram3));
-      bcm_pr_debug("dma_channels[%lu].dmas_sram4    = 0x%lx\n", (unsigned long)(i), (unsigned long)(regs.dma_channels[i].dmas_sram4));
+      bcm_pr_debug("dma_channels[%lu].dmas_rstart   = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmas_rstart));
+      bcm_pr_debug("dma_channels[%lu].dmas_sram2    = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmas_sram2));
+      bcm_pr_debug("dma_channels[%lu].dmas_sram3    = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmas_sram3));
+      bcm_pr_debug("dma_channels[%lu].dmas_sram4    = 0x%lx\n",
+         (unsigned long)(reg_idx), (unsigned long)(regs.dma_channels[reg_idx].dmas_sram4));
    }
 }
 
@@ -2082,23 +2129,25 @@ void pcm_configure_channels(pcm_t *t,
    bool use_16bits_mode,
    const __u8 *chans_to_ts, size_t chans_to_ts_len)
 {
-   size_t i;
+   size_t chan_idx;
 
-   bcm_pr_debug("pcm_configure_channels()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((!t->is_started) && (!t->dma_is_started));
-   bcm_assert((NULL != chans_to_ts) && (chans_to_ts_len > 0) && (chans_to_ts_len <= ARRAY_SIZE(t->channel_to_timeslot)));
+   bcm_assert((NULL != chans_to_ts) && /* (chans_to_ts_len >= 0) &&*/ (chans_to_ts_len <= ARRAY_SIZE(t->channel_to_timeslot)));
 
-   t->max_frame_size = PCM_MAX_FRAME_SIZE;
+   t->max_frame_size = BCMPH_PCM_MAX_FRAME_SIZE;
 
    bcm_assert((t->rx_data_buffer_size >= t->max_frame_size)
       && (t->tx_data_buffer_size >= t->max_frame_size));
 
    t->rx_data_buffer_rounded_size = (t->rx_data_buffer_size / t->max_frame_size);
    t->rx_data_buffer_rounded_size *= t->max_frame_size;
+   bcm_assert(pcm_get_max_frame_rx_buffer(t) <= BCMPH_PCM_MAX_FRAME_RX_BUFFER);
 
    t->tx_data_buffer_rounded_size = (t->tx_data_buffer_size / t->max_frame_size);
    t->tx_data_buffer_rounded_size *= t->max_frame_size;
+   bcm_assert(pcm_get_max_frame_tx_buffer(t) <= BCMPH_PCM_MAX_FRAME_TX_BUFFER);
 
    t->frame_size = 0;
 
@@ -2110,22 +2159,22 @@ void pcm_configure_channels(pcm_t *t,
    }
 
    memset(t->channel_to_timeslot, BCMPH_TIMESLOT_UNSPECIFIED, sizeof(t->channel_to_timeslot));
-   for (i = 0; (i < chans_to_ts_len); i += 1) {
+   for (chan_idx = 0; (chan_idx < chans_to_ts_len); chan_idx += 1) {
 #ifdef BCMPH_TEST_PCM
       size_t shift;
       __u8 chan;
 #endif // BCMPH_TEST_PCM
-      bcm_assert(BCMPH_TIMESLOT_UNSPECIFIED != chans_to_ts[i]);
+      bcm_assert(BCMPH_TIMESLOT_UNSPECIFIED != chans_to_ts[chan_idx]);
 #ifndef BCMPH_TEST_PCM
-      t->channel_to_timeslot[i] = chans_to_ts[i];
+      t->channel_to_timeslot[chan_idx] = chans_to_ts[chan_idx];
 #else // BCMPH_TEST_PCM
-      shift = ((BCMPH_PCM_MAX_CHANNELS - 1 - i) * 4);
+      shift = ((BCMPH_PCM_MAX_CHANNELS - 1 - chan_idx) * 4);
       chan = ((bcm_drv_param_channel_mapping >> shift) & 0xF);
       if (chan >= BCMPH_PCM_MAX_CHANNELS) {
          bcm_assert(false);
          chan = BCMPH_PCM_MAX_CHANNELS - 1;
       }
-      t->channel_to_timeslot[chan] = chans_to_ts[i];
+      t->channel_to_timeslot[chan] = chans_to_ts[chan_idx];
 #endif // BCMPH_TEST_PCM
    }
 #ifndef BCMPH_TEST_PCM
@@ -2138,15 +2187,15 @@ void pcm_configure_channels(pcm_t *t,
 __u8 pcm_get_channnel_used_for_timeslot(const pcm_t *t, __u8 timeslot)
 {
    __u8 ret = BCMPH_PCM_MAX_CHANNELS;
-   size_t i;
+   size_t chan_idx;
 
-   d_bcm_pr_debug("pcm_get_channnel_used_for_timeslot(timeslot=%u)\n", (unsigned int)(timeslot));
+   d_bcm_pr_debug("%s(timeslot=%u)\n", __func__, (unsigned int)(timeslot));
 
    bcm_assert(BCMPH_TIMESLOT_UNSPECIFIED != timeslot);
 
-   for (i = 0; (i < ARRAY_SIZE(t->channel_to_timeslot)); i += 1) {
-      if (t->channel_to_timeslot[i] == timeslot) {
-         ret = i;
+   for (chan_idx = 0; (chan_idx < ARRAY_SIZE(t->channel_to_timeslot)); chan_idx += 1) {
+      if (t->channel_to_timeslot[chan_idx] == timeslot) {
+         ret = chan_idx;
          break;
       }
    }
@@ -2160,7 +2209,7 @@ extern uint bcm_drv_param_pcm_chan_ctrl;
 
 void pcm_start(pcm_t *t)
 {
-   bcm_pr_debug("pcm_start()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert(!t->is_started);
 
@@ -2179,7 +2228,7 @@ void pcm_start(pcm_t *t)
 
    if (t->frame_size > 0) {
       __u32 reg;
-      size_t i;
+      size_t chan_idx;
       __u32 mask;
 #ifdef BCMPH_TEST_PCM
       mask = bcm_drv_param_pcm_chan_ctrl;
@@ -2189,17 +2238,17 @@ void pcm_start(pcm_t *t)
       // For each active channel, declare the timeslot to fill in the frame
       mask = 0;
       active_chans_count = t->frame_size / BCMPH_PCM_CHANNEL_WIDTH;
-      for (i = 0; (i < active_chans_count); i += 1) {
-         mask |= (PCM_RX0_EN << i);
+      for (chan_idx = 0; (chan_idx < active_chans_count); chan_idx += 1) {
+         mask |= (PCM_RX0_EN << chan_idx);
          // For 6358 the flags PCM_TXx_EN seem to have no effect
-         mask |= (PCM_TX0_EN << i);
+         mask |= (PCM_TX0_EN << chan_idx);
       }
 #endif // !BCMPH_TEST_PCM
 
       // Init timeslots
-      for (i = 0; (i < ARRAY_SIZE(t->channel_to_timeslot)); i += 1) {
-         if (BCMPH_TIMESLOT_UNSPECIFIED != t->channel_to_timeslot[i]) {
-            pcm_timeslot_alloc(t, i, t->channel_to_timeslot[i]);
+      for (chan_idx = 0; (chan_idx < ARRAY_SIZE(t->channel_to_timeslot)); chan_idx += 1) {
+         if (BCMPH_TIMESLOT_UNSPECIFIED != t->channel_to_timeslot[chan_idx]) {
+            pcm_timeslot_alloc(t, chan_idx, t->channel_to_timeslot[chan_idx]);
          }
       }
 
@@ -2259,7 +2308,7 @@ void pcm_start(pcm_t *t)
       pcm_dmac_writel(t, PCMDMAC_IR_BUFDONE_MASK | PCMDMAC_IR_PKTDONE_MASK, PCMDMAC_IRMASK_REG(t->tx_chan));
 #endif // BCMPH_ENABLE_PCM_INTERRUPTS
 
-#ifdef BCMPH_TEST_PCM
+#if ((defined BCMPH_TEST_PCM) && (!defined BCMPH_NOHW))
       pcm_pr_regs(t);
 #endif // BCMPH_TEST_PCM
 
@@ -2313,12 +2362,12 @@ void pcm_start(pcm_t *t)
 void pcm_stop(pcm_t *t)
 {
 #ifndef BCMPH_NOHW
-   size_t i;
+   size_t loop_count;
 #endif // BCMPH_NOHW
    __u32 reg;
 
 
-   bcm_pr_debug("pcm_stop()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    pcm_dma_stop(t);
 
@@ -2332,7 +2381,7 @@ void pcm_stop(pcm_t *t)
 
    bcm_pr_debug("Halting TX DMA\n");
 #ifndef BCMPH_NOHW
-   for (i = 0; (i < 500); i += 1) {
+   for (loop_count = 0; (loop_count < 500); loop_count += 1) {
       /* Set the burstHalt bit while clearing endma bit */
       pcm_dmac_writel(t, PCMDMAC_CHANCFG_BURSTHALT_MASK, PCMDMAC_CHANCFG_REG(t->tx_chan));
       msleep(1);
@@ -2354,7 +2403,7 @@ void pcm_stop(pcm_t *t)
    /* Deinit RX side */
    bcm_pr_debug("Halting RX DMA\n");
 #ifndef BCMPH_NOHW
-   for (i = 0; (i < 500); i += 1) {
+   for (loop_count = 0; (loop_count < 500); loop_count += 1) {
       /* Set the burstHalt bit while clearing endma bit */
       pcm_dmac_writel(t, PCMDMAC_CHANCFG_BURSTHALT_MASK, PCMDMAC_CHANCFG_REG(t->rx_chan));
       msleep(1);
@@ -2411,7 +2460,7 @@ void pcm_stop(pcm_t *t)
 
 void pcm_read_regs(const pcm_t *t, bcm_phone_pcm_regs_t *regs)
 {
-   size_t i;
+   size_t reg_idx;
 
    memset(regs, 0, sizeof(*regs));
 
@@ -2440,24 +2489,24 @@ void pcm_read_regs(const pcm_t *t, bcm_phone_pcm_regs_t *regs)
          break;
       }
    }
-   for (i = 0; (i < ARRAY_SIZE(regs->slot_alloc_tbl)); i += 1) {
-      regs->slot_alloc_tbl[i] = pcm_readl(t, PCM_SLOT_ALLOC_TBL_REG + (i << 2));
+   for (reg_idx = 0; (reg_idx < ARRAY_SIZE(regs->slot_alloc_tbl)); reg_idx += 1) {
+      regs->slot_alloc_tbl[reg_idx] = pcm_readl(t, PCM_SLOT_ALLOC_TBL_REG + (reg_idx << 2));
    }
    regs->dma_cfg = pcm_dma_readl(t, PCMDMA_CFG_REG);
-   for (i = 0; (i < ARRAY_SIZE(regs->dma_channels)); i += 1) {
-      regs->dma_channels[i].dma_flowcl = pcm_dma_readl(t, PCMDMA_FLOWCL_REG(i));
-      regs->dma_channels[i].dma_flowch = pcm_dma_readl(t, PCMDMA_FLOWCH_REG(i));
-      regs->dma_channels[i].dma_bufalloc = pcm_dma_readl(t, PCMDMA_BUFALLOC_REG(i));
+   for (reg_idx = 0; (reg_idx < ARRAY_SIZE(regs->dma_channels)); reg_idx += 1) {
+      regs->dma_channels[reg_idx].dma_flowcl = pcm_dma_readl(t, PCMDMA_FLOWCL_REG(reg_idx));
+      regs->dma_channels[reg_idx].dma_flowch = pcm_dma_readl(t, PCMDMA_FLOWCH_REG(reg_idx));
+      regs->dma_channels[reg_idx].dma_bufalloc = pcm_dma_readl(t, PCMDMA_BUFALLOC_REG(reg_idx));
 
-      regs->dma_channels[i].dmac_chancfg = pcm_dmac_readl(t, PCMDMAC_CHANCFG_REG(i));
-      regs->dma_channels[i].dmac_ir = pcm_dmac_readl(t, PCMDMAC_IR_REG(i));
-      regs->dma_channels[i].dmac_irmask = pcm_dmac_readl(t, PCMDMAC_IRMASK_REG(i));
-      regs->dma_channels[i].dmac_maxburst = pcm_dmac_readl(t, PCMDMAC_MAXBURST_REG(i));
+      regs->dma_channels[reg_idx].dmac_chancfg = pcm_dmac_readl(t, PCMDMAC_CHANCFG_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmac_ir = pcm_dmac_readl(t, PCMDMAC_IR_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmac_irmask = pcm_dmac_readl(t, PCMDMAC_IRMASK_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmac_maxburst = pcm_dmac_readl(t, PCMDMAC_MAXBURST_REG(reg_idx));
 
-      regs->dma_channels[i].dmas_rstart = pcm_dmas_readl(t, PCMDMAS_RSTART_REG(i));
-      regs->dma_channels[i].dmas_sram2 = pcm_dmas_readl(t, PCMDMAS_SRAM2_REG(i));
-      regs->dma_channels[i].dmas_sram3 = pcm_dmas_readl(t, PCMDMAS_SRAM3_REG(i));
-      regs->dma_channels[i].dmas_sram4 = pcm_dmas_readl(t, PCMDMAS_SRAM4_REG(i));
+      regs->dma_channels[reg_idx].dmas_rstart = pcm_dmas_readl(t, PCMDMAS_RSTART_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmas_sram2 = pcm_dmas_readl(t, PCMDMAS_SRAM2_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmas_sram3 = pcm_dmas_readl(t, PCMDMAS_SRAM3_REG(reg_idx));
+      regs->dma_channels[reg_idx].dmas_sram4 = pcm_dmas_readl(t, PCMDMAS_SRAM4_REG(reg_idx));
    }
 }
 
@@ -2474,12 +2523,12 @@ int __init pcm_init(pcm_t *t,
    void (*rx_desc_returned_cb)(pcm_t *t),
    void (*tx_desc_empty_cb)(pcm_t *t))
 {
-   int ret;
+   int ret = -1;
 #ifndef BCMPH_NOHW
    __u32 val;
 #endif // !BCMPH_NOHW
 
-   bcm_pr_debug("pcm_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((8192 == board_desc->phone_desc->clk_rate)
       || (4096 == board_desc->phone_desc->clk_rate)
@@ -2491,34 +2540,41 @@ int __init pcm_init(pcm_t *t,
       // In endpointdd.ko for a 6358 SoC, they set a value of 4
       // I think it means 4 words of 32 bits
       // We set it to a multiple of a frame size
-      t->dma_maxburst = PCM_MAX_FRAME_SIZE / 4;
+      t->dma_maxburst = BCMPH_PCM_MAX_FRAME_SIZE / 4;
    }
    else {
       // For a 6368 or 6362 a word is 64 bits wide ?
-      t->dma_maxburst = PCM_MAX_FRAME_SIZE / 8;
+      t->dma_maxburst = BCMPH_PCM_MAX_FRAME_SIZE / 8;
    }
 #else // BCMPH_NOHW
+   bcm_period_init(&(t->timestamp));
    t->dma_maxburst = PCMDMAC_MAXBURST_SIZE;
 #endif // BCMPH_NOHW
 
-   t->max_frame_size = PCM_MAX_FRAME_SIZE;
+   t->max_frame_size = BCMPH_PCM_MAX_FRAME_SIZE;
 
-   // If the signal FS of PCM bus is clocked at 8 kHz we receive 8 samples per
-   // millisecond.
-   // A sample is 2 bytes max, so, to hold 1 ms of data we need a buffer of
-   // (BCMPH_PCM_MAX_CHANNELS * 8 * 2) bytes
+   /*
+    If the signal FS of PCM bus is clocked at BCMPH_SAMPLES_PER_MS kHz
+    we get BCMPH_SAMPLES_PER_MS samples of a timeslot per millisecond.
+    A channel can contain BCMPH_PCM_CHANNEL_WIDTH samples in 8 bits mode
+    or BCMPH_PCM_CHANNEL_WIDTH / 2 samples in 16 bits mode
+    So to hold 1 ms of samples we need at most a buffer of
+    BCMPH_PCM_MAX_CHANNELS * (BCMPH_PCM_CHANNEL_WIDTH / 2) * BCMPH_SAMPLES_PER_MS
+    As BCMPH_PCM_MAX_CHANNELS * BCMPH_PCM_CHANNEL_WIDTH == BCMPH_PCM_MAX_FRAME_SIZE
+    we can rewrite to (BCMPH_PCM_MAX_FRAME_SIZE * BCMPH_SAMPLES_PER_MS) / 2
+   */
 
 #ifndef BCMPH_NOHW
-   // We choose a buffer size allowing reception of (board_desc->phone_desc->tick_period / 5) ms of data
-   t->rx_data_buffer_size = (((BCMPH_PCM_MAX_CHANNELS * 16 * board_desc->phone_desc->tick_period) + 4) / 5);
+   // We choose a buffer size allowing reception of (board_desc->phone_desc->tick_period / 5) ms of data in 16 bits mode
+   t->rx_data_buffer_size = ((BCMPH_PCM_MAX_FRAME_SIZE * BCMPH_SAMPLES_PER_MS * board_desc->phone_desc->tick_period) + ((2 * 5) - 1)) / (2 * 5);
 #else // BCMPH_NOHW
    // We choose a buffer size allowing reception of (board_desc->phone_desc->tick_period / 10) ms of data
-   t->rx_data_buffer_size = (((BCMPH_PCM_MAX_CHANNELS * 16 * board_desc->phone_desc->tick_period) + 9) / 10);
+   t->rx_data_buffer_size = ((BCMPH_PCM_MAX_FRAME_SIZE * BCMPH_SAMPLES_PER_MS * board_desc->phone_desc->tick_period) + ((2 * 10) - 1)) / (2 * 10);
 #endif // BCMPH_NOHW
-   // We round up to a multiple PCM_MAX_FRAME_SIZE.
-   t->rx_data_buffer_size = round_up_generic(t->rx_data_buffer_size, PCM_MAX_FRAME_SIZE);
+   // We round up to a multiple of BCMPH_PCM_MAX_FRAME_SIZE.
+   t->rx_data_buffer_size = round_up_generic(t->rx_data_buffer_size, BCMPH_PCM_MAX_FRAME_SIZE);
    // We also want that the multiple is a power of 2
-   t->rx_data_buffer_size = round_up_to_next_pow_of_2(t->rx_data_buffer_size / PCM_MAX_FRAME_SIZE) * PCM_MAX_FRAME_SIZE;
+   t->rx_data_buffer_size = round_up_to_next_pow_of_2(t->rx_data_buffer_size / BCMPH_PCM_MAX_FRAME_SIZE) * BCMPH_PCM_MAX_FRAME_SIZE;
    if (t->rx_data_buffer_size > 4095) {
       bcm_pr_err("RX data buffer size (%lu) must be less than 4096\n",
          (unsigned long)(t->rx_data_buffer_size));
@@ -2532,13 +2588,14 @@ int __init pcm_init(pcm_t *t,
       goto fail_size;
    }
    t->rx_data_buffer_rounded_size = t->rx_data_buffer_size;
-#ifndef BCMPH_NOHW
-   // We want to have a number of buffer holding at most 50 ms of data
-   t->rx_ring_size = ((BCMPH_PCM_MAX_CHANNELS * 16 * 50) + t->rx_data_buffer_size - 1) / t->rx_data_buffer_size;
-#else // BCMPH_NOHW
+   if (pcm_get_max_frame_rx_buffer(t) > BCMPH_PCM_MAX_FRAME_RX_BUFFER) {
+      bcm_pr_err("RX data buffer size (%lu) is too big. Can contain more than %lu frames\n",
+         (unsigned long)(t->rx_data_buffer_size), (unsigned long)(BCMPH_PCM_MAX_FRAME_RX_BUFFER));
+      ret = -1;
+      goto fail_size;
+   }
    // We want to have a number of buffer holding at most 30 ms of data
-   t->rx_ring_size = ((BCMPH_PCM_MAX_CHANNELS * 16 * 30) + t->rx_data_buffer_size - 1) / t->rx_data_buffer_size;
-#endif // BCMPH_NOHW
+   t->rx_ring_size = ((BCMPH_PCM_MAX_FRAME_SIZE * BCMPH_SAMPLES_PER_MS * 30) + ((t->rx_data_buffer_size * 2) - 1)) / (t->rx_data_buffer_size * 2);
    // rx_ring_size must be greater than 1 else rx_desc_returned_cb
    // will be called too often
    if (t->rx_ring_size <= 1) {
@@ -2551,10 +2608,10 @@ int __init pcm_init(pcm_t *t,
 
    // We choose the same buffer size as for RX */
    t->tx_data_buffer_size = t->rx_data_buffer_size;
-   // We round up to a multiple PCM_MAX_FRAME_SIZE.
-   t->tx_data_buffer_size = round_up_generic(t->tx_data_buffer_size, PCM_MAX_FRAME_SIZE);
+   // We round up to a multiple of BCMPH_PCM_MAX_FRAME_SIZE.
+   t->tx_data_buffer_size = round_up_generic(t->tx_data_buffer_size, BCMPH_PCM_MAX_FRAME_SIZE);
    // We also want that the multiple is a power of 2
-   t->tx_data_buffer_size = round_up_to_next_pow_of_2(t->tx_data_buffer_size / PCM_MAX_FRAME_SIZE) * PCM_MAX_FRAME_SIZE;
+   t->tx_data_buffer_size = round_up_to_next_pow_of_2(t->tx_data_buffer_size / BCMPH_PCM_MAX_FRAME_SIZE) * BCMPH_PCM_MAX_FRAME_SIZE;
    if (t->tx_data_buffer_size > 4095) {
       bcm_pr_err("TX data buffer size (%lu) must be less than 4096\n",
          (unsigned long)(t->tx_data_buffer_size));
@@ -2568,12 +2625,18 @@ int __init pcm_init(pcm_t *t,
       goto fail_size;
    }
    t->tx_data_buffer_rounded_size = t->tx_data_buffer_size;
+   if (pcm_get_max_frame_tx_buffer(t) > BCMPH_PCM_MAX_FRAME_TX_BUFFER) {
+      bcm_pr_err("TX data buffer size (%lu) is too big. Can contain more than %lu frames\n",
+         (unsigned long)(t->tx_data_buffer_size), (unsigned long)(BCMPH_PCM_MAX_FRAME_TX_BUFFER));
+      ret = -1;
+      goto fail_size;
+   }
 #ifndef BCMPH_NOHW
    // We choose the same ring size as for RX */
    t->tx_ring_size = t->rx_ring_size;
 #else // BCMPH_NOHW
    // We want to have a number of buffer holding at most 20 ms of data
-   t->tx_ring_size = ((BCMPH_PCM_MAX_CHANNELS * 16 * 20) + t->tx_data_buffer_size - 1) / t->tx_data_buffer_size;
+   t->tx_ring_size = ((BCMPH_PCM_MAX_CHANNELS * 2 * BCMPH_SAMPLES_PER_MS * 20) + t->tx_data_buffer_size - 1) / t->tx_data_buffer_size;
 #endif // BCMPH_NOHW
    // tx_ring_size must be greater than 1 else tx_desc_empty_cb
    // will be called too often
@@ -2681,7 +2744,7 @@ void pcm_deinit(pcm_t *t)
    __u32 val;
 #endif // !BCMPH_NOHW
 
-   bcm_pr_debug("pcm_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    pcm_stop(t);
 

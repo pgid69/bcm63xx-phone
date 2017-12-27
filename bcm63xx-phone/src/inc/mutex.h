@@ -5,14 +5,11 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __MUTEX_H__
 #define __MUTEX_H__
 
-#ifdef __KERNEL__
-#include <linux/mutex.h>
-#else // !__KERNEL__
-#include <fake_kernel.h>
-#endif // !__KERNEL__
+#include <extern/linux/mutex.h>
 
 typedef struct
 {

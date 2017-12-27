@@ -5,6 +5,7 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <stdint.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -22,6 +23,7 @@
 #include <linux/types.h>
 #include <signal.h>
 
+#define BCMPH_EXPORT_DEV_FILE
 #define BCMPH_DEBUG
 //#define BCMPH_TEST_PCM
 
@@ -33,10 +35,9 @@
 
 #include <bcm63xx_phone.h>
 #include <bcm63xx_ring_buf.h>
-
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-
 #include <bcm63xx_ring_buf.c>
+
+#include <macros.h>
 
 #ifndef BCMPH_TEST_PCM
 #include "demo-thanks.h"
@@ -53,6 +54,7 @@ static unsigned int prm_tone_on_time = 8191;
 static unsigned int prm_tone_off_time = 0;
 static const char *prm_output = NULL;
 static const char *prm_input = NULL;
+static int prm_ec = 0;
 
 static void dump_buf(const char *title, const uint8_t *buf, size_t lng_buf)
 {
@@ -132,13 +134,13 @@ static int get_driver_mem(int fd, driver_mem_t *driver_mem)
 
 static void update_ring_bufs_desc(driver_mem_t *driver_mem)
 {
-   size_t i;
-   for (i = 0; (i < ARRAY_SIZE(driver_mem->lines)); i += 1) {
-      bcm_assert((driver_mem->lines[i].rx_ring_buf_desc->len == driver_mem->lines[i].rx_ring_buf.desc.len));
-      bcm_ring_buf_desc_copy(driver_mem->lines[i].rx_ring_buf_desc, &(driver_mem->lines[i].rx_ring_buf.desc));
+   size_t line_idx;
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(driver_mem->lines)); line_idx += 1) {
+      bcm_assert((driver_mem->lines[line_idx].rx_ring_buf_desc->len == driver_mem->lines[line_idx].rx_ring_buf.desc.len));
+      bcm_ring_buf_desc_copy(driver_mem->lines[line_idx].rx_ring_buf_desc, &(driver_mem->lines[line_idx].rx_ring_buf.desc));
 
-      bcm_assert((driver_mem->lines[i].tx_ring_buf_desc->len == driver_mem->lines[i].tx_ring_buf.desc.len));
-      bcm_ring_buf_desc_copy(driver_mem->lines[i].tx_ring_buf_desc, &(driver_mem->lines[i].tx_ring_buf.desc));
+      bcm_assert((driver_mem->lines[line_idx].tx_ring_buf_desc->len == driver_mem->lines[line_idx].tx_ring_buf.desc.len));
+      bcm_ring_buf_desc_copy(driver_mem->lines[line_idx].tx_ring_buf_desc, &(driver_mem->lines[line_idx].tx_ring_buf.desc));
    }
 }
 
@@ -281,6 +283,7 @@ static void init_phone_cfg(bcm_phone_cfg_params_t *prms)
    for (i = 0; (i < ARRAY_SIZE(prm_lines)); i += 1) {
       prms->line_params[i].enable = prm_lines[i].enable;
       prms->line_params[i].codec = prm_lines[i].codec;
+      prms->line_params[i].echo_cancel_tap_length = 64;
    }
 }
 
@@ -386,6 +389,8 @@ static int set_line_mode(int fd, size_t line,
    memset(&(param), 0, sizeof(param));
    param.line = line;
    param.mode = mode;
+   param.echo_cancellation = prm_ec;
+   param.reverse_polarity = 0;
    param.tone = tone;
    if (BCMPH_MODE_OFF_TALKING == mode) {
       param.wait = -1;
@@ -435,7 +440,7 @@ static int get_line_states(int fd, int wait, bcm_phone_get_line_states_t *states
 }
 #endif // !BCMPH_TEST_PCM
 
-static const char *device = "/dev/bcm63xx-phone";
+static const char *device = "/dev/bcm63xx_phone";
 
 static __u8 g_buf_tx[1024 * 80];
 static __u8 g_buf_rx[1024 * 20];
@@ -446,7 +451,8 @@ static int test_loopback(void)
    int fd = -1;
 
    do { // Empty loop
-      size_t todo;
+      size_t todo_tx;
+      size_t todo_rx;
       size_t delay;
       size_t total_done_tx;
       size_t done_tx;
@@ -486,6 +492,8 @@ static int test_loopback(void)
             for (done_tx = 0; (done_tx < sizeof(g_buf_tx)); done_tx += 1) {
                g_buf_tx[done_tx] = (__u8)(done_tx);
             }
+            // We set first byte to something not null
+            g_buf_tx[0] = 0xFF;
             buf_tx = g_buf_tx;
             len_buf_tx = sizeof(g_buf_tx);
 #ifndef BCMPH_TEST_PCM
@@ -521,8 +529,8 @@ static int test_loopback(void)
       // We fill TX buffers before starting PCM
       total_done_tx = 0;
       done_tx = 0;
-      todo = len_buf_tx - done_tx;
-      len = write(fd, &(buf_tx[done_tx]), todo);
+      todo_tx = len_buf_tx - done_tx;
+      len = write(fd, &(buf_tx[done_tx]), todo_tx);
       if (len < 0) {
          if ((EINTR != errno) && (EAGAIN != errno) && (EWOULDBLOCK != errno)) {
             perror("");
@@ -556,8 +564,8 @@ static int test_loopback(void)
       delay = 0;
       while (done_rx < len_buf_rx) {
          int pause = 1;
-         todo = len_buf_rx - done_rx;
-         len = read(fd, &(buf_rx[done_rx]), todo);
+         todo_rx = len_buf_rx - done_rx;
+         len = read(fd, &(buf_rx[done_rx]), todo_rx);
          if (len < 0) {
             if ((EINTR != errno) && (EAGAIN != errno) && (EWOULDBLOCK != errno)) {
                perror("");
@@ -579,8 +587,8 @@ static int test_loopback(void)
          if (done_tx >= len_buf_tx) {
             done_tx = 0;
          }
-         todo = len_buf_tx - done_tx;
-         len = write(fd, &(buf_tx[done_tx]), todo);
+         todo_tx = len_buf_tx - done_tx;
+         len = write(fd, &(buf_tx[done_tx]), todo_tx);
          if (len < 0) {
             if ((EINTR != errno) && (EAGAIN != errno) && (EWOULDBLOCK != errno)) {
                perror("");
@@ -619,8 +627,8 @@ static int test_loopback(void)
       stop_pcm(fd);
 
       // We read remaining bytes
-      todo = len_buf_rx - done_rx;
-      len = read(fd, &(buf_rx[done_rx]), todo);
+      todo_rx = len_buf_rx - done_rx;
+      len = read(fd, &(buf_rx[done_rx]), todo_rx);
       if (len < 0) {
          if ((EINTR != errno) && (EAGAIN != errno) && (EWOULDBLOCK != errno)) {
             perror("");
@@ -639,16 +647,20 @@ static int test_loopback(void)
       read_stats(fd);
 
 #ifdef BCMPH_NOHW
-      for (todo = 0; ((todo < done_tx) && (todo < done_rx)); todo += 1) {
-         if (buf_tx[todo] != buf_rx[todo]) {
+      // Skip null bytes
+      for (todo_rx = 0; ((todo_rx < done_rx) && (0 == buf_rx[todo_rx])); todo_rx += 1) {
+      }
+      fprintf(stdout, "%lu null bytes skipped.\n", (unsigned long)(todo_rx));
+      for (todo_tx = 0; ((todo_tx < done_tx) && (todo_rx < done_rx)); todo_tx += 1, todo_rx += 1) {
+         if (buf_tx[todo_tx] != buf_rx[todo_rx]) {
             break;
          }
       }
-      if ((todo >= done_tx) || (todo >= done_rx)) {
+      if ((todo_tx >= done_tx) || (todo_rx >= done_rx)) {
          fprintf(stdout, "Bytes received are the same as those sent\n");
       }
       else {
-         fprintf(stdout, "Byte %lu received differ from the one sent : %x vs %x\n", (unsigned long)(todo), (unsigned int)(buf_rx[todo]), (unsigned int)(buf_tx[todo]));
+         fprintf(stdout, "Byte %lu received differ from the one sent : %x vs %x\n", (unsigned long)(todo_rx), (unsigned int)(buf_rx[todo_rx]), (unsigned int)(buf_tx[todo_tx]));
       }
 #endif // BCMPH_NOHW
    } while (0);
@@ -669,7 +681,8 @@ static int test_loopback_mm(void)
    driver_mem.start_addr = NULL;
 
    do { // Empty loop
-      size_t todo;
+      size_t todo_tx;
+      size_t todo_rx;
       size_t total_done_tx;
       size_t done_tx;
       size_t done_rx;
@@ -708,6 +721,8 @@ static int test_loopback_mm(void)
             for (done_tx = 0; (done_tx < sizeof(g_buf_tx)); done_tx += 1) {
                g_buf_tx[done_tx] = (__u8)(done_tx);
             }
+            // We set first byte to something not null
+            g_buf_tx[0] = 0xFF;
             buf_tx = g_buf_tx;
             len_buf_tx = sizeof(g_buf_tx);
 #ifndef BCMPH_TEST_PCM
@@ -742,17 +757,17 @@ static int test_loopback_mm(void)
       // We fill TX buffers before starting PCM
       total_done_tx = 0;
       done_tx = 0;
-      todo = bcm_ring_buf_get_free_space(&(driver_mem.lines[prm_default_line].tx_ring_buf));
-      if (todo > (len_buf_tx - done_tx)) {
-         todo = len_buf_tx - done_tx;
+      todo_tx = bcm_ring_buf_get_free_space(&(driver_mem.lines[prm_default_line].tx_ring_buf));
+      if (todo_tx > (len_buf_tx - done_tx)) {
+         todo_tx = len_buf_tx - done_tx;
       }
-      bcm_ring_buf_add(&(driver_mem.lines[prm_default_line].tx_ring_buf), &(buf_tx[done_tx]), todo);
-      ret = write_mm(&(driver_mem), prm_default_line, todo);
+      bcm_ring_buf_add(&(driver_mem.lines[prm_default_line].tx_ring_buf), &(buf_tx[done_tx]), todo_tx);
+      ret = write_mm(&(driver_mem), prm_default_line, todo_tx);
       if (ret) {
          break;
       }
-      done_tx += todo;
-      total_done_tx += todo;
+      done_tx += todo_tx;
+      total_done_tx += todo_tx;
 
       // Then we start PCM
       ret = start_pcm(fd);
@@ -778,35 +793,35 @@ static int test_loopback_mm(void)
       delay = 0;
       while (done_rx < len_buf_rx) {
          int pause = 1;
-         todo = bcm_ring_buf_get_size(&(driver_mem.lines[prm_default_line].rx_ring_buf));
-         if (todo > (len_buf_rx - done_rx)) {
-            todo = len_buf_rx - done_rx;
+         todo_rx = bcm_ring_buf_get_size(&(driver_mem.lines[prm_default_line].rx_ring_buf));
+         if (todo_rx > (len_buf_rx - done_rx)) {
+            todo_rx = len_buf_rx - done_rx;
          }
-         if (todo > 0) {
-            bcm_ring_buf_remove(&(driver_mem.lines[prm_default_line].rx_ring_buf), &(buf_rx[done_rx]), todo);
-            ret = read_mm(&(driver_mem), prm_default_line, todo);
+         if (todo_rx > 0) {
+            bcm_ring_buf_remove(&(driver_mem.lines[prm_default_line].rx_ring_buf), &(buf_rx[done_rx]), todo_rx);
+            ret = read_mm(&(driver_mem), prm_default_line, todo_rx);
             if (ret) {
                break;
             }
-            done_rx += todo;
+            done_rx += todo_rx;
             pause = 0;
          }
 
          if (done_tx >= len_buf_tx) {
             done_tx = 0;
          }
-         todo = bcm_ring_buf_get_free_space(&(driver_mem.lines[prm_default_line].tx_ring_buf));
-         if (todo > (len_buf_tx - done_tx)) {
-            todo = len_buf_tx - done_tx;
+         todo_tx = bcm_ring_buf_get_free_space(&(driver_mem.lines[prm_default_line].tx_ring_buf));
+         if (todo_tx > (len_buf_tx - done_tx)) {
+            todo_tx = len_buf_tx - done_tx;
          }
-         if (todo > 0) {
-            bcm_ring_buf_add(&(driver_mem.lines[prm_default_line].tx_ring_buf), &(buf_tx[done_tx]), todo);
-            ret = write_mm(&(driver_mem), prm_default_line, todo);
+         if (todo_tx > 0) {
+            bcm_ring_buf_add(&(driver_mem.lines[prm_default_line].tx_ring_buf), &(buf_tx[done_tx]), todo_tx);
+            ret = write_mm(&(driver_mem), prm_default_line, todo_tx);
             if (ret) {
                break;
             }
-            done_tx += todo;
-            total_done_tx += todo;
+            done_tx += todo_tx;
+            total_done_tx += todo_tx;
             pause = 0;
          }
          if (pause) {
@@ -844,16 +859,16 @@ static int test_loopback_mm(void)
       if (ret) {
          break;
       }
-      todo = bcm_ring_buf_get_size(&(driver_mem.lines[prm_default_line].rx_ring_buf));
-      if (todo > (len_buf_rx - done_rx)) {
-         todo = len_buf_rx - done_rx;
+      todo_rx = bcm_ring_buf_get_size(&(driver_mem.lines[prm_default_line].rx_ring_buf));
+      if (todo_rx > (len_buf_rx - done_rx)) {
+         todo_rx = len_buf_rx - done_rx;
       }
-      bcm_ring_buf_remove(&(driver_mem.lines[prm_default_line].rx_ring_buf), &(buf_rx[done_rx]), todo);
-      ret = read_mm(&(driver_mem), prm_default_line, todo);
+      bcm_ring_buf_remove(&(driver_mem.lines[prm_default_line].rx_ring_buf), &(buf_rx[done_rx]), todo_rx);
+      ret = read_mm(&(driver_mem), prm_default_line, todo_rx);
       if (ret) {
          break;
       }
-      done_rx += todo;
+      done_rx += todo_rx;
 
       // We stop
       stop(fd);
@@ -864,16 +879,20 @@ static int test_loopback_mm(void)
       read_stats_mm(&(driver_mem));
 
 #ifdef BCMPH_NOHW
-      for (todo = 0; ((todo < done_tx) && (todo < done_rx)); todo += 1) {
-         if (buf_tx[todo] != buf_rx[todo]) {
+      // Skip null bytes
+      for (todo_rx = 0; ((todo_rx < done_rx) && (0 == buf_rx[todo_rx])); todo_rx += 1) {
+      }
+      fprintf(stdout, "%lu null bytes skipped.\n", (unsigned long)(todo_rx));
+      for (todo_tx = 0; ((todo_tx < done_tx) && (todo_rx < done_rx)); todo_tx += 1, todo_rx += 1) {
+         if (buf_tx[todo_tx] != buf_rx[todo_rx]) {
             break;
          }
       }
-      if ((todo >= done_tx) || (todo >= done_rx)) {
+      if ((todo_tx >= done_tx) || (todo_rx >= done_rx)) {
          fprintf(stdout, "Bytes received are the same as those sent\n");
       }
       else {
-         fprintf(stdout, "Byte %lu received differ from the one sent : %x vs %x\n", (unsigned long)(todo), (unsigned int)(buf_rx[todo]), (unsigned int)(buf_tx[todo]));
+         fprintf(stdout, "Byte %lu received differ from the one sent : %x vs %x\n", (unsigned long)(todo_rx), (unsigned int)(buf_rx[todo_rx]), (unsigned int)(buf_tx[todo_tx]));
       }
 #endif // BCMPH_NOHW
    } while (0);
@@ -984,13 +1003,13 @@ static int test_echo(void)
          break;
       }
 
-      // We make the phone ringing
-      if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
+      if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
          fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+         states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
          break;
       }
 
-      // We wait for the line to become off hook
+      // We wait for the line to become on hook and make the phone ring
       if (BCMPH_STATUS_ON_HOOK == states.line_state[prm_default_line].status) {
          ret = set_line_mode(fd, prm_default_line, BCMPH_MODE_ON_RINGING,
             bcm_phone_line_tone_code_index(BCMPH_TONE_NONE));
@@ -1004,8 +1023,9 @@ static int test_echo(void)
             if (ret) {
                break;
             }
-            if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
+            if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
                fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+               states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
                break;
             }
             if (BCMPH_STATUS_OFF_HOOK == states.line_state[prm_default_line].status) {
@@ -1184,13 +1204,13 @@ static int test_echo(void)
          if (states.line_state[prm_default_line].flash_count > 0) {
             fprintf(stdout, "%u flash(es) received\n", (unsigned int)(states.line_state[prm_default_line].flash_count));
          }
+         if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
+            fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+            states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
+            break;
+         }
          if (BCMPH_STATUS_OFF_HOOK != states.line_state[prm_default_line].status) {
-            if (BCMPH_STATUS_ON_HOOK == states.line_state[prm_default_line].status) {
-               fprintf(stdout, "Line %lu is on hook\n", (unsigned long)(prm_default_line));
-            }
-            else if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
-               fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
-            }
+            fprintf(stdout, "Line %lu is on hook\n", (unsigned long)(prm_default_line));
             break;
          }
          if (BCMPH_MODE_OFF_TALKING != states.line_state[prm_default_line].mode) {
@@ -1260,13 +1280,13 @@ static int test_tone(void)
          break;
       }
 
-      // We make the phone ringing
-      if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
+      if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
          fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+         states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
          break;
       }
 
-      // We wait for the line to become off hook
+      // We wait for the line to become on hook and make the phone ring
       if (BCMPH_STATUS_ON_HOOK == states.line_state[prm_default_line].status) {
          ret = set_line_mode(fd, prm_default_line, BCMPH_MODE_ON_RINGING,
             bcm_phone_line_tone_code_index(BCMPH_TONE_NONE));
@@ -1280,8 +1300,9 @@ static int test_tone(void)
             if (ret) {
                break;
             }
-            if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
+            if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
                fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+               states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
                break;
             }
             if (BCMPH_STATUS_OFF_HOOK == states.line_state[prm_default_line].status) {
@@ -1337,13 +1358,13 @@ static int test_tone(void)
          if (states.line_state[prm_default_line].flash_count > 0) {
             fprintf(stdout, "%u flash(es) received\n", (unsigned int)(states.line_state[prm_default_line].flash_count));
          }
+         if (BCMPH_MODE_DISCONNECT == states.line_state[prm_default_line].mode) {
+            fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
+            states.line_state[prm_default_line].status = BCMPH_STATUS_UNSPECIFIED;
+            break;
+         }
          if (BCMPH_STATUS_OFF_HOOK != states.line_state[prm_default_line].status) {
-            if (BCMPH_STATUS_ON_HOOK == states.line_state[prm_default_line].status) {
-               fprintf(stdout, "Line %lu is on hook\n", (unsigned long)(prm_default_line));
-            }
-            else if (BCMPH_STATUS_DISCONNECTED == states.line_state[prm_default_line].status) {
-               fprintf(stdout, "Line %lu is disconnected\n", (unsigned long)(prm_default_line));
-            }
+            fprintf(stdout, "Line %lu is on hook\n", (unsigned long)(prm_default_line));
             break;
          }
 #else // BCMPH_TEST_PCM
@@ -1523,8 +1544,6 @@ static int get_bytes(stream_t *s, __u8 *bytes, size_t len)
 }
 
 #ifdef BCMPH_NOHW
-
-#undef ARRAY_SIZE
 
 typedef struct {
    __u8 cmd;
@@ -1944,6 +1963,7 @@ static const char prm_name_input[] = "input";
 static const char prm_name_tone[] = "tone";
 static const char prm_name_on[] = "on";
 static const char prm_name_off[] = "off";
+static const char prm_name_ec[] = "ec";
 
 static void print_usage(void)
 {
@@ -1959,6 +1979,7 @@ static void print_usage(void)
    fprintf(stdout, " tone=none|waiting_dial|invalid|ringback|busy|disconnect|0|1|2|3|4|5|6|7|8|9|a|b|c|d|*|#, default value=waiting_dial : the tone to emit in test 'tone' but also in test 'echo' just after the user hook of the phone\n");
    fprintf(stdout, " on=[0-8191], default value=8191 : the time in msecs the tone must be on. If null and 'off' is not null the tone will be on for 'off' msecs and stops. If null and off is null too used default values of the driver\n");
    fprintf(stdout, " off=[0-8191], default value=0 : the time in msecs the tone must be off. If null and 'on' is not null, the tone will be played continuously\n");
+   fprintf(stdout, " ec=0|1, default value=0 : enable or disable echo cancellation\n");
 }
 
 int main(int argc, char *argv[])
@@ -2087,6 +2108,17 @@ int main(int argc, char *argv[])
             }
             else {
                fprintf(stderr, "Value of arg '%s' must be >= 0 and < %lu\n", argv[i], (unsigned long)(ARRAY_SIZE(prm_lines)));
+               pause = 1;
+            }
+            continue;
+         }
+         if (((ARRAY_SIZE(prm_name_ec) - 1) == name_len) && (0 == strncasecmp(name, prm_name_ec, name_len))) {
+            int tmp = atoi(value);
+            if ((0 == tmp) || (1 == tmp)) {
+               prm_ec = tmp;
+            }
+            else {
+               fprintf(stderr, "Value of arg '%s' must be 0 or 1\n", argv[i]);
                pause = 1;
             }
             continue;

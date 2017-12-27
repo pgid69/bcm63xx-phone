@@ -22,11 +22,13 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/mman.h>
 
 #include <bcm63xx_phone.h>
 
+#include <asterisk/alaw.h>
 #include <asterisk/ast_version.h>
 #include <asterisk/channel.h>
 #include <asterisk/callerid.h>
@@ -43,6 +45,7 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #include <asterisk/format_cap.h>
 #endif /* (AST_VERSION >= 110) */
 #include <asterisk/frame.h>
+#include <asterisk/indications.h>
 #include <asterisk/linkedlists.h>
 #include <asterisk/lock.h>
 #include <asterisk/logger.h>
@@ -50,14 +53,16 @@ ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
 #include <asterisk/musiconhold.h>
 #include <asterisk/pbx.h>
 #include <asterisk/strings.h>
+#include <asterisk/ulaw.h>
 #include <asterisk/utils.h>
 
-#if !defined(__cplusplus) && !defined(c_plusplus)
-typedef int bool;
+#include "logger.h"
 
-#define false 0
-#define true 1
-#endif /* __cplusplus */
+// The following source files are included instead of being compiled separately
+// because otherwise the compilation fails with Asterisk 1.8 and GCC >= 5
+// with multiple defined Asterisk functions in asterisk/lock.h, asterisk/string.h...
+#include "callerid.c"
+#include "tone_generation.c"
 
 #if (AST_VERSION < 110)
 typedef format_t bcmph_ast_format;
@@ -73,8 +78,8 @@ typedef struct ast_format_cap bcmph_ast_format_cap;
 
 #if (AST_VERSION <= 110)
 /*
- * If a new format is added, functions bcmph_init_cache_ast_format and
- * bcmph_ast_format_cap_get_best_by_type should be updated
+ If a new format is added, functions bcmph_init_cache_ast_format must
+ be updated
  */
 static bcmph_ast_format *ast_format_ulaw;
 static bcmph_ast_format *ast_format_alaw;
@@ -226,6 +231,17 @@ static inline void bcmph_ast_format_cap_append_format(
 #endif /* (AST_VERSION > 110) */
 }
 
+static inline void bcmph_ast_format_cap_remove(
+   bcmph_ast_format_cap *cap, bcmph_ast_format *format)
+{
+   bcm_assert((NULL != cap) && (NULL != format));
+#if (AST_VERSION < 110)
+   *cap &= (~(*format));
+#else /* (AST_VERSION >= 110) */
+   ast_format_cap_remove(cap, format);
+#endif /* (AST_VERSION > 110) */
+}
+
 static inline int bcmph_ast_format_cap_iscompatible_cap(
    const bcmph_ast_format_cap *cap1, const bcmph_ast_format_cap *cap2)
 {
@@ -254,34 +270,6 @@ static inline int bcmph_ast_format_cap_iscompatible_format(
 #if (AST_VERSION > 110)
    return (AST_FORMAT_CMP_EQUAL == ast_format_cap_iscompatible_format(cap, format));
 #endif /* (AST_VERSION > 110) */
-}
-
-/* The format returned (if any) must be released with bcmph_ao2_ref_format(, -1) */
-static inline bcmph_ast_format *bcmph_ast_format_cap_get_preferred(
-   const bcmph_ast_format_cap *cap)
-{
-   bcm_assert(NULL != cap);
-   bcmph_ast_format *ret = NULL;
-   if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_ulaw)) {
-      ret = ast_format_ulaw;
-   }
-   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_alaw)) {
-      ret = ast_format_alaw;
-   }
-   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_slin)) {
-      ret = ast_format_slin;
-   }
-   else if (bcmph_ast_format_cap_iscompatible_format(cap, ast_format_slin16)) {
-      ret = ast_format_slin16;
-   }
-   else {
-      /* Format not handled */
-      bcm_assert(false);
-   }
-   if (NULL != ret) {
-      bcmph_ao2_ref_format(ret, 1);
-   }
-   return (ret);
 }
 
 static const char *bcmph_ast_channel_name(const struct ast_channel *chan)
@@ -547,6 +535,27 @@ static inline void bcmph_ast_set_frame_format(
 #endif /* (AST_VERSION > 110) */
 }
 
+static inline struct ast_tone_zone *bcmph_ast_channel_zone(const struct ast_channel *chan)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   return (chan->zone);
+#else /* (AST_VERSION >= 110) */
+   return (ast_channel_zone(chan));
+#endif /* (AST_VERSION >= 110) */
+}
+
+static inline void bcmph_ast_channel_zone_set(struct ast_channel *chan, struct ast_tone_zone *zone)
+{
+   bcm_assert(NULL != chan);
+#if (AST_VERSION < 110)
+   chan->zone = zone;
+#else /* (AST_VERSION >= 110) */
+   ast_channel_zone_set(chan, zone);
+#endif /* (AST_VERSION >= 110) */
+}
+
+
 #define DEFAULT_CALLER_ID "Unknown"
 
 /* The two following values are from the Asterisk code */
@@ -556,45 +565,263 @@ static inline void bcmph_ast_set_frame_format(
 /*
  D'apres ce que je comprends le deroulement est le suivant
  * Si l'appel est initie par l'utilisateur :
- celui ci decroche le telephone, ce qui est detecte par le moniteur,
- ce dernier attend ou pas qu'une extension soit tape, appelle bcmph_new()
+ celui ci decroche le telephone, ce qui est detecte par le moniteur.
+ Ce dernier attend ou pas qu'une extension soit tape, appelle bcmph_new()
  ce qui cree un channel dans l'etat AST_STATE_RING, et appelle ast_pbx_start()
  pour la creation d'un thread pour le channel precedemment cree.
- Asterisk appelle ensuite bcmph_chan_answer() ce qui fait passer le channel
- dans l'etat AST_STATE_UP et passe la ligne en mode conversation.
- En fin de conversation hangup() est appelle : le channel est detache
- de la ligne.
+ Asterisk appelle ensuite bcmph_chan_answer() ce qui fait passer le
+ channel dans l'etat AST_STATE_UP et passe la ligne en mode conversation.
+ En fin de conversation bcmph_chan_hangup() est appelle : le channel est
+ detache de la ligne.
  * Si l'appel est recu de l'exterieur :
  Asterisk appelle bcmph_chan_request() qui appelle bcmph_new() ce qui
- cree un channel dans l'etat AST_STATE_DOWN. Pas de thread demarre, c'est
- Asterisk qui s'en chargera plus tard.
+ cree un channel dans l'etat AST_STATE_DOWN. Pas de thread demarre,
+ c'est Asterisk qui s'en chargera plus tard.
  Asterisk appelle ensuite bcmph_chan_call() pour faire sonner le telephone.
  Lorsque l'utilisateur decroche la ligne passe en mode conversation.
- En fin de conversation hangup() est appelle : le channel est detache de
- la ligne.
+ En fin de conversation bcmph_chan_hangup() est appelle : le channel est
+ detache de la ligne.
 */
 
 /* #undef BCMPH_DEBUG */
 
-#undef bcm_assert
-#undef bcm_pr_debug
-#ifdef BCMPH_DEBUG
-#define bcm_assert(cond) if (!(cond)) { ast_log(AST_LOG_DEBUG, "condition '%s' is false\n", #cond); }
-#define bcm_pr_debug(fmt, args...) ast_log(AST_LOG_DEBUG, fmt, ## args)
-#else /* !BCMPH_DEBUG */
-#define bcm_assert(cond)
-#define bcm_pr_debug(fmt, args...)
-#endif /* !BCMPH_DEBUG */
 
 #define AST_MODULE bcmph_chan_type
 
 #include <bcm63xx_line_state.c>
 #include <bcm63xx_ring_buf.c>
 
-static const char bcmph_device[] = "/dev/bcm63xx-phone";
+static const char bcmph_device[] = "/dev/bcm63xx_phone";
 static const char bcmph_chan_type[] = "Bcm63xxPhone";
 static const char bcmph_chan_desc[] = "Broadcom 63xx Telephony Driver";
 static const char bcmph_cfg_file[] = "bcm63xx_phone.conf";
+static struct {
+   const char *name;
+   const char *language;
+   const char *default_zone;
+   bcmph_country_t country;
+} bcmph_countries[] = {
+   {
+      .name = "etsi",
+      .language = "en_GB",
+      .default_zone = "uk",
+      .country = BCMPH_COUNTRY_ETSI,
+   },
+   {
+      /*
+       GR-57 refers to a document from Telcordia.
+       But not sure of the values we must use
+      */
+      .name = "gr57",
+      .language = "en_US",
+      .default_zone = "us",
+      .country = BCMPH_COUNTRY_GR57,
+   },
+   {
+      .name = "australia",
+      .language = "en_AU",
+      .default_zone = "au",
+      .country = BCMPH_COUNTRY_AU,
+   },
+   {
+      .name = "austria",
+      .language = "de_AT",
+      .default_zone = "at",
+      .country = BCMPH_COUNTRY_AT,
+   },
+   {
+      .name = "belgium",
+      .language = "fr_BE",
+      .default_zone = "be",
+      .country = BCMPH_COUNTRY_BE,
+   },
+   {
+      .name = "brazil",
+      .language = "pt_BR",
+      .default_zone = "br",
+      .country = BCMPH_COUNTRY_BR,
+   },
+   {
+      .name = "bulgaria",
+      .language = "bg_BG",
+      .default_zone = "bg",
+      .country = BCMPH_COUNTRY_BG,
+   },
+   {
+      .name = "canada",
+      .language = "en_CA",
+      .default_zone = "us",
+      .country = BCMPH_COUNTRY_CA,
+   },
+   {
+      .name = "china",
+      .language = "zh_CN",
+      .default_zone = "cn",
+      .country = BCMPH_COUNTRY_CN,
+   },
+   {
+      .name = "denmark",
+      .language = "da_DK",
+      .default_zone = "dk",
+      .country = BCMPH_COUNTRY_DK,
+   },
+   {
+      .name = "finland",
+      .language = "fi_FI",
+      .default_zone = "fi",
+      .country = BCMPH_COUNTRY_FI,
+   },
+   {
+      .name = "france",
+      .language = "fr_FR",
+      .default_zone = "fr",
+      .country = BCMPH_COUNTRY_FR,
+   },
+   {
+      .name = "germany",
+      .language = "de_DE",
+      .default_zone = "de",
+      .country = BCMPH_COUNTRY_DE,
+   },
+   {
+      .name = "great_britain",
+      .language = "en_GB",
+      .default_zone = "uk",
+      .country = BCMPH_COUNTRY_GB,
+   },
+   {
+      .name = "greece",
+      .language = "el_GR",
+      .default_zone = "gr",
+      .country = BCMPH_COUNTRY_GR,
+   },
+   {
+      .name = "honk_kong",
+      .language = "zh_HK",
+      .default_zone = "cn",
+      .country = BCMPH_COUNTRY_HK,
+   },
+   {
+      .name = "hungary",
+      .language = "hu_HU",
+      .default_zone = "hu",
+      .country = BCMPH_COUNTRY_HU,
+   },
+   {
+      .name = "iceland",
+      .language = "is_IS",
+      .default_zone = NULL,
+      .country = BCMPH_COUNTRY_IS,
+   },
+   {
+      .name = "ireland",
+      .language = "en_IE",
+      .default_zone = "uk",
+      .country = BCMPH_COUNTRY_IE,
+   },
+   {
+      .name = "israel",
+      .language = "he_IL",
+      .default_zone = "il",
+      .country = BCMPH_COUNTRY_IL,
+   },
+   {
+      .name = "italy",
+      .language = "it_IT",
+      .default_zone = "it",
+      .country = BCMPH_COUNTRY_IT,
+   },
+   {
+      .name = "japan",
+      .language = "ja_JP",
+      .default_zone = "jp",
+      .country = BCMPH_COUNTRY_JP,
+   },
+   {
+      .name = "korea",
+      .language = "ko_KR",
+      .default_zone = NULL,
+      .country = BCMPH_COUNTRY_KR,
+   },
+   {
+      .name = "netherlands",
+      .language = "nl_NL",
+      .default_zone = "nl",
+      .country = BCMPH_COUNTRY_NL,
+   },
+   {
+      .name = "new_zealand",
+      .language = "en_NZ",
+      .default_zone = "nz",
+      .country = BCMPH_COUNTRY_NZ,
+   },
+   {
+      .name = "norway",
+      .language = "no_NO",
+      .default_zone = "no",
+      .country = BCMPH_COUNTRY_NO,
+   },
+   {
+      .name = "portugal",
+      .language = "pt_PT",
+      .default_zone = "pt",
+      .country = BCMPH_COUNTRY_PT,
+   },
+   {
+      .name = "russia",
+      .language = "ru_RU",
+      .default_zone = "ru",
+      .country = BCMPH_COUNTRY_RU,
+   },
+   {
+      .name = "singapore",
+      .language = "en_SG",
+      .default_zone = "sg",
+      .country = BCMPH_COUNTRY_SG,
+   },
+   {
+      .name = "south_africa",
+      .language = "en_ZA",
+      .default_zone = "za",
+      .country = BCMPH_COUNTRY_ZA,
+   },
+   {
+      .name = "spain",
+      .language = "es_ES",
+      .default_zone = "es",
+      .country = BCMPH_COUNTRY_ES,
+   },
+   {
+      .name = "sweden",
+      .language = "sv_SE",
+      .default_zone = "se",
+      .country = BCMPH_COUNTRY_SE,
+   },
+   {
+      .name = "switzerland",
+      .language = "de_CH",
+      .default_zone = "ch",
+      .country = BCMPH_COUNTRY_CH,
+   },
+   {
+      .name = "taiwan",
+      .language = "zh_TW",
+      .default_zone = "tw",
+      .country = BCMPH_COUNTRY_TW,
+   },
+   {
+      .name = "turkey",
+      .language = "tr_TR",
+      .default_zone = NULL,
+      .country = BCMPH_COUNTRY_TK,
+   },
+   {
+      .name = "united_states",
+      .language = "en_US",
+      .default_zone = "us",
+      .country = BCMPH_COUNTRY_US,
+   },
+};
 
 static const char bcmph_default_extension[] = "s";
 /*
@@ -613,12 +840,22 @@ static const int bcmph_monitor_idle_timeout = 10000; /* ms */
 
 enum {
    DETECT_DTMF_WHEN_DIALING = 0x01,
+   /*
+    Before connection means before function bcmph_setup() is
+    called
+   */
    DETECT_DTMF_BEFORE_CONNECTION = 0x02,
+   /*
+    When connected means when in conversation
+   */
    DETECT_DTMF_WHEN_CONNECTED = 0x04,
 };
 
 typedef struct {
+   /* See file bcm63xx-phone.conf */
    bool enable;
+   bcmph_cid_signalling_t cid_signalling;
+   bcmph_cid_start_t cid_start;
 #if (AST_VERSION < 110)
    bcmph_ast_format_cap capabilities;
 #else /* (AST_VERSION >= 110) */
@@ -633,6 +870,8 @@ typedef struct {
    char cid_name[AST_MAX_EXTENSION];
    char cid_num[AST_MAX_EXTENSION];
    char moh_interpret[MAX_MUSICCLASS];
+   int reverse_polarity;
+   int echo_cancel_tap_length;
 } bcmph_line_config_t;
 
 static inline bcmph_ast_format_cap *bcmph_get_line_cfg_cap(bcmph_line_config_t *line_cfg)
@@ -647,15 +886,32 @@ static inline bcmph_ast_format_cap *bcmph_get_line_cfg_cap(bcmph_line_config_t *
 typedef struct {
    const char *language;
    bcmph_country_t country;
+   char zone[16];
    size_t line_count;
    bcmph_line_config_t line_cfgs[BCMPH_MAX_LINES];
    int monitor_busy_period;
+   struct {
+      const int *cadence;
+      size_t cadence_len;
+   } ring;
+   /*
+    Asterisk tone zone corresponding to zone, or default zone
+    if zone is empty or is not found in Asterisk config file
+    indications.conf
+   */
+   struct ast_tone_zone *tone_zone;
+   /* Definitions of tones extracted from tone_zone */
+   bcmph_dual_tone_sequence_t tone_dial;
+   bcmph_dual_tone_sequence_t tone_busy;
+   bcmph_dual_tone_sequence_t tone_congestion;
 } bcmph_chan_config_t;
 
 /*
 - The events that can occur on a line
 -*/
 typedef enum {
+   /* Pseudo event initialization */
+   BCMPH_EV_INIT,
    /* The user hooks off the phone */
    BCMPH_EV_OFF_HOOK,
    /* The user hooks on the phone */
@@ -694,7 +950,7 @@ typedef enum {
    */
    BCMPH_ST_ON_RINGING,
    /*
-    Phone is off hook and while we were in state BCMPH_ST_ON_IDLE,
+    Phone was on hook and we were in state BCMPH_ST_ON_IDLE, then
     the user hook off the phone. This state is entered only if
     line_cfg->monitor_dialing is true
    */
@@ -724,14 +980,28 @@ typedef enum {
 /*
  BCMPH_MIN_SIZE_RING_BUFFER is the minimum size of the ring buffer of the
  drivers containing slin16 encoded data.
- That represents (BCMPH_MIN_SIZE_RING_BUFFER / (8 * 4)) msecs
+ That represents (BCMPH_MIN_SIZE_RING_BUFFER / (BCMPH_SAMPLES_PER_MS * 4)) msecs
  BCMPH_MAX_BUF is halved to represent the same time but for slin encoded data
 */
 #define BCMPH_MAX_BUF (BCMPH_MIN_SIZE_RING_BUFFER / 2)
 
+/*
+ Ringing cadence
+*/
+#define BCMPH_RING_PULSE_DELAY 250 /* From ETSI specs, should be between 200 and 300ms */
+
+static const int bcmph_default_ring_cadence[] = { 4000, 2000 };
+
+#define BCMPH_RING_STAGE_RING_PULSE -2
+#define BCMPH_RING_STAGE_SEND_CID_BEFORE_RING (BCMPH_RING_STAGE_RING_PULSE + 1)
+#define BCMPH_RING_STAGE_SEND_CID_AFTER_RING 1
+
+#define BCMPH_VOL_TONE 7219
+
 typedef struct bcmph_pvt
 {
    AST_LIST_ENTRY(bcmph_pvt) list;
+   /* Pointer to bcmph_chan owning the line */
    struct bcmph_chan *channel;
    /* Index of the line in array channel->config.line_cfgs */
    size_t index_line;
@@ -740,9 +1010,9 @@ typedef struct bcmph_pvt
 
    /*
     Asterisk channel linked to this line :
-    any change of this field is protected by the monitor's lock and the channel
-    lock at the same time, so read of this field is safe whenever one of the
-    lock is acquired.
+    any change of this field must be protected by the monitor's lock and
+    the channel lock at the same time, so read of this field is safe
+    whenever one of the locks is acquired.
    */
    struct ast_channel *owner;
 #ifdef BCMPH_DEBUG
@@ -751,13 +1021,13 @@ typedef struct bcmph_pvt
 
    /*
     The following fields are used by the monitor.
-    If the monitor is running they must be accessed under the protection of
-    the monitor's lock
+    If the monitor is running they must be accessed under the protection
+    of the monitor's lock
    */
    struct {
       /*
-       Store and accumulate the state of line states in case we can't lock the
-       channel in the monitor loop
+       Store and accumulate the state of line states in case we can't
+       lock the channel in the monitor loop
       */
       bcm_phone_line_state_t line_state;
    } monitor;
@@ -767,26 +1037,81 @@ typedef struct bcmph_pvt
     ast_channel's lock (if an ast_channel is associated with this line)
    */
    struct {
+      /*
+       Current status, mode and tone of the line. Used to detect
+       changes and handle events produced by these changes
+      */
       bcm_phone_line_status_t current_status;
       bcm_phone_line_mode_t current_mode;
       bcm_phone_line_tone_t current_tone;
-      /* DSP processor used to detect DTMF digits in data read from the driver */
-      struct ast_dsp *dsp;
+      /*
+       Last output format set and size of one sample : valid if
+       ((BCMPH_MODE_ON_TALKING == current_mode)
+       || (BCMPH_MODE_OFF_TALKING == current_mode))
+      */
+      bcmph_ast_format *current_format;
+      /* Size of one sample */
+      size_t bytes_per_sample;
+
       /* Logical state */
       bcmph_state_t state;
+
+      /*
+       DSP processor used to detect DTMF digits in data read from the
+       driver
+      */
+      struct ast_dsp *dsp;
+
+      /*
+       Ring stage count : valid if (BCMPH_ST_ON_RINGING == state).
+       If it's even, phone should be ringing, if it's odd,
+       phone should be idle
+      */
+      int ring_stage;
+      /*
+       Used to wait a minimum delay :
+       - when ringing to toggle the ring on and off
+       - when dialing between last digit dialed and the search for
+       an extension
+       - when in conversation, between the queuing of two DTMFs
+      */
+      struct timeval tv_wait;
+
+      /*
+       Sound generator used to "play" Caller ID or tones before or after
+       call is established.
+       When call is established, we let Asterisk generates sound
+       (cf function bcmph_chan_indicate())
+      */
+      struct {
+         bcmph_sound_generator_t *worker;
+         /* The codec used to encode the samples */
+         bcmph_ast_format *format;
+         /*
+          If codec is not slin, the function used to convert slin samples
+          generated by sound generator to the codec 'format'
+         */
+         void (*post_process_fn)(__s16 *buffer, size_t len);
+      } sound_generator;
+      /* Caller ID generator */
+      bcmph_callerid_generator_t cid_generator;
+      /* Tone generator for playing tones dial, busy or congestion */
+      bcmph_dual_tone_generator_t tone_generator;
+
       /*
        Used to accumulate digits dialed to recognize an extension when
-       dialing, or to send dtmfs when in conversation (because we can't send
-       DTMFs too quickly, we must use a buffer to store them)
+       dialing, or to send dtmfs when in conversation (because we can't
+       send DTMFs too quickly, we must use a buffer to store them)
       */
       char digits[AST_MAX_EXTENSION + 1];
       size_t digits_len;
       /*
-       When dialing flag set to true when a new digit is dialed, meaning we can
-       search for an extension.
+       When dialing flag set to true when a new digit is dialed, meaning
+       we can search for an extension.
        Flag reset to false when search has been done
       */
       bool search_extension;
+
       /*
        When in conversation flag set to NONE, ON or OFF to handle
        sending of DTMF.
@@ -794,17 +1119,7 @@ typedef struct bcmph_pvt
       enum {
          NONE, ON, OFF
       } dtmf_sent;
-      /*
-       Used to wait a minimum delay :
-       - when dialing between last digit dialed and the search for
-       an extension
-       - when in conversation, between the queuing of two DTMFs
-      */
-      struct timeval tv_last_digit;
-      /* Last output format */
-      bcmph_ast_format *current_format;
-      /* Size of sample */
-      size_t bytes_per_sample;
+
       /* Size of frames (in bytes) read from the driver and sent to Asterisk */
       size_t frame_size_read;
       /* Frame used when calling ast_queue_frame(), with its buffer */
@@ -814,8 +1129,8 @@ typedef struct bcmph_pvt
       struct ast_frame frame;
       __u8 buf_fr[BCMPH_MAX_BUF + AST_FRIENDLY_OFFSET];
       /*
-       Buffer used to hold an incomplete sample in order to only write complete
-       sample to the driver
+       Buffer used to hold an incomplete sample in order to only write
+       complete sample to the driver
       */
       __u8 bytes_not_written[4];
       size_t bytes_not_written_len;
@@ -837,7 +1152,9 @@ typedef struct bcmph_pvt
 } bcmph_pvt_t;
 
 typedef struct {
+   /* Tell if Asterisk channel is still locked */
    bool channel_is_locked;
+   /* Timeout to use by the monitor at next call to get_line_states() */
    int timeout;
 } bcmph_monitor_prms_t;
 
@@ -853,15 +1170,15 @@ typedef struct bcmph_chan
    {
       /* Flag set to false to stop the monitor */
       volatile bool run;
-      /* This is the thread for the monitor which checks for input on the lines
-         which are not currently in use.  */
+      /*
+       This is the thread for the monitor which checks for input on the
+       lines which are not currently in use.
+      */
       pthread_t thread;
       ast_mutex_t lock;
 #ifdef BCMPH_DEBUG
       int lock_count;
 #endif /* BCMPH_DEBUG */
-      /* Count the number of lines off hook */
-      __u32 line_off_hook_count;
    } monitor;
 
    /* File descriptor on the kernel driver */
@@ -883,6 +1200,96 @@ typedef struct bcmph_chan
 #endif /* BCMPH_DEBUG */
    } mmap;
 } bcmph_chan_t;
+
+static struct {
+   bcmph_ast_format *ast_format;
+   bcm_phone_codec_t codec;
+   size_t bytes_per_sample;
+} bcmph_supported_codecs[] = {
+   /*
+    Order of codecs is important because used by
+    bcmph_ast_format_cap_get_preferred()
+    We choose the codec that uses the less timeslots
+    Even if alaw is told to be simpler to process that ulaw,
+    ulaw (which is american) is more "standard" than alaw
+    (which is only european)
+   */
+   {
+      .codec = BCMPH_CODEC_ULAW,
+      .bytes_per_sample = 1,
+   },
+   {
+      .codec = BCMPH_CODEC_ALAW,
+      .bytes_per_sample = 1,
+   },
+   {
+      .codec = BCMPH_CODEC_LINEAR,
+      .bytes_per_sample = 2,
+   },
+   {
+      .codec = BCMPH_CODEC_LINEAR16,
+      /*
+       With codec LINEAR16 we receive (BCMPH_SAMPLES_PER_MS * 2)
+       samples of 2 bytes per ms which is equivalent to
+       BCMPH_SAMPLES_PER_MS samples of 4 bytes per ms
+      */
+      .bytes_per_sample = 4,
+   },
+};
+
+static void bcmph_init_supported_codecs(void)
+{
+   size_t codec_idx;
+
+   bcmph_init_cache_ast_format();
+
+   for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+      switch (bcmph_supported_codecs[codec_idx].codec) {
+         case BCMPH_CODEC_ALAW: {
+            bcmph_supported_codecs[codec_idx].ast_format = ast_format_alaw;
+            break;
+         }
+         case BCMPH_CODEC_ULAW: {
+            bcmph_supported_codecs[codec_idx].ast_format = ast_format_ulaw;
+            break;
+         }
+         case BCMPH_CODEC_LINEAR: {
+            bcmph_supported_codecs[codec_idx].ast_format = ast_format_slin;
+            break;
+         }
+         case BCMPH_CODEC_LINEAR16: {
+            bcmph_supported_codecs[codec_idx].ast_format = ast_format_slin16;
+            break;
+         }
+         default: {
+            bcm_assert(false);
+            bcmph_supported_codecs[codec_idx].ast_format = NULL;
+            break;
+         }
+      }
+   }
+}
+
+/* The format returned (if any) must be released with bcmph_ao2_ref_format(f, -1) */
+static inline bcmph_ast_format *bcmph_ast_format_cap_get_preferred(
+   const bcmph_ast_format_cap *cap)
+{
+   bcmph_ast_format *ret = NULL;
+   size_t codec_idx;
+
+   bcm_assert(NULL != cap);
+
+   for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+      if (bcmph_ast_format_cap_iscompatible_format(cap, bcmph_supported_codecs[codec_idx].ast_format)) {
+         ret = bcmph_supported_codecs[codec_idx].ast_format;
+         bcmph_ao2_ref_format(ret, 1);
+         break;
+      }
+   }
+   bcm_assert(codec_idx < ARRAY_SIZE(bcmph_supported_codecs));
+
+   return (ret);
+}
 
 static int bcmph_do_ioctl(const bcmph_chan_t *t, unsigned long request,
    unsigned long arg, bool retry)
@@ -959,9 +1366,9 @@ static void bcmph_mmap_unlock(bcmph_chan_t *t)
 /* Must be called with monitor.lock locked */
 static inline int bcmph_start_pcm(const bcmph_chan_t *t)
 {
-   int ret;
+   int ret = 0;
 
-   bcm_pr_debug("bcmph_start_pcm()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert(t->monitor.lock_count > 0);
 
@@ -975,9 +1382,9 @@ static inline int bcmph_start_pcm(const bcmph_chan_t *t)
 /* Must be called with monitor.lock locked */
 static inline int bcmph_stop_pcm(const bcmph_chan_t *t)
 {
-   int ret;
+   int ret = 0;
 
-   bcm_pr_debug("bcmph_stop_pcm()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert(t->monitor.lock_count > 0);
 
@@ -985,61 +1392,53 @@ static inline int bcmph_stop_pcm(const bcmph_chan_t *t)
    if (ret) {
       ast_log(AST_LOG_ERROR, "Unable to stop PCM transfers\n");
    }
+
    return (ret);
 }
 
 /* Must be called with pvt->owner locked */
-static int bcmph_set_line_codec(bcmph_pvt_t *pvt,
-   const bcmph_ast_format *format,
-   bcm_phone_line_mode_t mode, bcm_phone_line_tone_t tone)
+static int _bcmph_set_line_codec(bcmph_pvt_t *pvt,
+   const bcmph_ast_format *ast_format, bcm_phone_line_mode_t mode,
+   int echo_cancellation, int reverse_polarity,
+   bcm_phone_line_tone_t tone)
 {
    int ret;
    bcm_phone_set_line_codec_t set_line_codec;
+   size_t codec_idx;
    size_t bytes_per_sample = 1;
    size_t frame_size_read = (BCMPH_MAX_BUF / 2);
    bcmph_ast_format *new_format = NULL;
 
    bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
-      && (NULL != format));
+      && (NULL != ast_format));
 
    memset(&(set_line_codec), 0, sizeof(set_line_codec));
    set_line_codec.line = pvt->index_line;
-   if (bcmph_ast_formats_are_equal(ast_format_ulaw, format)) {
-      new_format = ast_format_ulaw;
-      set_line_codec.codec = BCMPH_CODEC_ULAW;
-      bytes_per_sample = 1;
-      frame_size_read = (BCMPH_MAX_BUF / 2);
+   for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+      if (bcmph_ast_formats_are_equal(bcmph_supported_codecs[codec_idx].ast_format, ast_format)) {
+         new_format = bcmph_supported_codecs[codec_idx].ast_format;
+         set_line_codec.codec = bcmph_supported_codecs[codec_idx].codec;
+         bytes_per_sample = bcmph_supported_codecs[codec_idx].bytes_per_sample;
+         if (bytes_per_sample < 2) {
+            bcm_assert(1 == bytes_per_sample);
+            frame_size_read = (BCMPH_MAX_BUF / 2);
+         }
+         else {
+            frame_size_read = BCMPH_MAX_BUF;
+         }
+         break;
+      }
    }
-   else if (bcmph_ast_formats_are_equal(ast_format_alaw, format)) {
-      new_format = ast_format_alaw;
-      set_line_codec.codec = BCMPH_CODEC_ALAW;
-      bytes_per_sample = 1;
-      frame_size_read = (BCMPH_MAX_BUF / 2);
-   }
-   else if (bcmph_ast_formats_are_equal(ast_format_slin, format)) {
-      new_format = ast_format_slin;
-      set_line_codec.codec = BCMPH_CODEC_LINEAR;
-      bytes_per_sample = 2;
-      frame_size_read = BCMPH_MAX_BUF;
-   }
-   else if (bcmph_ast_formats_are_equal(ast_format_slin16, format)) {
-      new_format = ast_format_slin16;
-      set_line_codec.codec = BCMPH_CODEC_LINEAR16;
-      /*
-       With codec LINEAR16 we receive 16 samples of 2 bytes per ms
-       which is equivalent to 8 samples of 4 bytes per ms
-      */
-      bytes_per_sample = 4;
-      frame_size_read = BCMPH_MAX_BUF;
-   }
-   else {
-      bcm_assert(false);
-   }
+   bcm_assert(codec_idx < ARRAY_SIZE(bcmph_supported_codecs));
    set_line_codec.mode = mode;
+   set_line_codec.echo_cancellation = echo_cancellation;
+   set_line_codec.reverse_polarity = reverse_polarity;
    set_line_codec.tone = bcm_phone_line_tone_code_index(tone);
 
-   bcm_pr_debug("bcmph_set_line_codec(codec=%d, mode=%d, tone=%d)\n",
-      (int)(set_line_codec.codec), (int)(set_line_codec.mode), (int)(set_line_codec.tone));
+   bcm_pr_debug("%s(codec=%d, mode=%d, echo_cancellation=%d, reverse_polarity=%d, tone=%d)\n",
+      __func__, (int)(set_line_codec.codec), (int)(set_line_codec.mode),
+      (int)(echo_cancellation), (int)(reverse_polarity),
+      (int)(set_line_codec.tone));
 
    ret = bcmph_do_ioctl(pvt->channel, BCMPH_IOCTL_SET_LINE_CODEC, (unsigned long)(&(set_line_codec)), true);
    if (ret) {
@@ -1077,20 +1476,24 @@ static int bcmph_set_line_codec(bcmph_pvt_t *pvt,
 
 /* Must be called with pvt->owner locked */
 static int bcmph_set_line_mode(bcmph_pvt_t *pvt,
-   bcm_phone_line_mode_t mode, bcm_phone_line_tone_t tone, int wait)
+   bcm_phone_line_mode_t mode, int echo_cancellation,
+   int reverse_polarity, bcm_phone_line_tone_t tone, int wait)
 {
    int ret;
    bcm_phone_set_line_mode_t set_line_mode;
 
-   bcm_pr_debug("bcmph_set_line_mode(mode=%d, tone=%d, wait=%d)\n",
-      (int)(mode), (int)(tone), (int)(wait));
+   bcm_pr_debug("%s(mode=%d, echo_cancellation=%d, reverse_polarity=%d, tone=%d, wait=%d)\n",
+      __func__, (int)(mode), (int)(echo_cancellation),
+      (int)(reverse_polarity), (int)(tone), (int)(wait));
 
    bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
-      && (BCMPH_MODE_UNSPECIFIED != mode));
+      && ((BCMPH_MODE_UNSPECIFIED != mode) || (reverse_polarity >= 0)));
 
    memset(&(set_line_mode), 0, sizeof(set_line_mode));
    set_line_mode.line = pvt->index_line;
    set_line_mode.mode = mode;
+   set_line_mode.echo_cancellation = echo_cancellation;
+   set_line_mode.reverse_polarity = reverse_polarity;
    set_line_mode.tone = bcm_phone_line_tone_code_index(tone);
    set_line_mode.wait = wait;
    ret = bcmph_do_ioctl(pvt->channel, BCMPH_IOCTL_SET_LINE_MODE, (unsigned long)(&(set_line_mode)), true);
@@ -1105,7 +1508,9 @@ static int bcmph_set_line_mode(bcmph_pvt_t *pvt,
        If mode or tone are not what we want, the change will be detected
        in the monitor
       */
-      pvt->ast_channel.current_mode = mode;
+      if (BCMPH_MODE_UNSPECIFIED != mode) {
+         pvt->ast_channel.current_mode = mode;
+      }
       if (BCMPH_TONE_UNSPECIFIED != tone) {
          pvt->ast_channel.current_tone = tone;
       }
@@ -1121,7 +1526,7 @@ static int bcmph_set_line_tone(bcmph_pvt_t *pvt,
    int ret;
    bcm_phone_set_line_tone_t set_line_tone;
 
-   bcm_pr_debug("bcmph_set_line_tone(tone=%lu, wait=%d)\n",
+   bcm_pr_debug("%s(tone=%lu, wait=%d)\n", __func__,
       (unsigned long)(tone), (int)(wait));
 
    bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -1149,10 +1554,286 @@ static int bcmph_set_line_tone(bcmph_pvt_t *pvt,
    return (ret);
 }
 
+static inline void bcmph_change_monitor_timeout(
+   bcmph_monitor_prms_t *monitor_prms, int timeout)
+{
+   /* bcm_pr_debug("%s(timeout=%d)\n", __func__, (int)(timeout)); */
+
+   bcm_assert((timeout > 0) && (NULL != monitor_prms));
+   if (timeout < monitor_prms->timeout) {
+      monitor_prms->timeout = timeout;
+   }
+}
+
+static void bcmph_convert_slin_to_alaw_in_place(__s16 *buffer, size_t len)
+{
+   size_t buffer_idx;
+   __u8 *ptr = (__u8 *)(buffer);
+   for (buffer_idx = 0; (buffer_idx < len); buffer_idx += 1, buffer += 1, ptr += 1) {
+      *ptr = AST_LIN2A(*buffer);
+   }
+}
+
+static void bcmph_convert_slin_to_ulaw_in_place(__s16 *buffer, size_t len)
+{
+   size_t buffer_idx;
+   __u8 *ptr = (__u8 *)(buffer);
+   for (buffer_idx = 0; (buffer_idx < len); buffer_idx += 1, buffer += 1, ptr += 1) {
+      *ptr = AST_LIN2MU(*buffer);
+   }
+}
+
+/* Must be called with pvt->owner */
+static inline bool bcmph_is_sound_generator_ready(const bcmph_pvt_t *pvt)
+{
+   return ((NULL != pvt->ast_channel.sound_generator.worker) ? true : false);
+}
+
+/* Must be called with pvt->owner */
+static void bcmph_unset_sound_generator(bcmph_pvt_t *pvt)
+{
+   bcm_assert((NULL == pvt->owner) || (pvt->owner_lock_count > 0));
+
+   if (NULL != pvt->ast_channel.sound_generator.worker) {
+      bcm_pr_debug("%s()\n", __func__);
+      (*(pvt->ast_channel.sound_generator.worker->vtbl->deinit))(pvt->ast_channel.sound_generator.worker);
+      pvt->ast_channel.sound_generator.worker = NULL;
+   }
+   if (NULL != pvt->ast_channel.sound_generator.format) {
+      bcmph_ao2_ref_format(pvt->ast_channel.sound_generator.format, -1);
+      pvt->ast_channel.sound_generator.format = NULL;
+   }
+   pvt->ast_channel.sound_generator.post_process_fn = NULL;
+}
+
+/* Must be called with pvt->owner locked */
+static bool bcmph_set_sound_generator(bcmph_pvt_t *pvt,
+   bcmph_sound_generator_t *sound_generator)
+{
+   bcm_pr_debug("%s()\n", __func__);
+
+   bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
+      && (NULL != sound_generator));
+
+   bcmph_unset_sound_generator(pvt);
+
+   bcm_assert((NULL == pvt->ast_channel.sound_generator.worker)
+      && (NULL == pvt->ast_channel.sound_generator.post_process_fn)
+      && (NULL == pvt->ast_channel.sound_generator.format));
+
+   /* slin is the preferred codec as sound generators produce slin samples */
+   if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
+      pvt->ast_channel.sound_generator.format = ast_format_slin;
+      pvt->ast_channel.sound_generator.post_process_fn = NULL;
+   }
+   else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_ulaw)) {
+      pvt->ast_channel.sound_generator.format = ast_format_ulaw;
+      pvt->ast_channel.sound_generator.post_process_fn = bcmph_convert_slin_to_ulaw_in_place;
+   }
+   else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_alaw)) {
+      pvt->ast_channel.sound_generator.format = ast_format_alaw;
+      pvt->ast_channel.sound_generator.post_process_fn = bcmph_convert_slin_to_alaw_in_place;
+   }
+   if (NULL != pvt->ast_channel.sound_generator.format) {
+      bcmph_ao2_ref_format(pvt->ast_channel.sound_generator.format, 1);
+      pvt->ast_channel.sound_generator.worker = sound_generator;
+      return (true);
+   }
+   else {
+      (*(sound_generator->vtbl->deinit))(sound_generator);
+      bcm_pr_debug("%s() failed\n", __func__);
+      return (false);
+   }
+}
+
+/* Must be called with pvt->owner locked */
+static inline void bcmph_unset_tone_generator(bcmph_pvt_t *pvt)
+{
+   bcm_pr_debug("%s()\n", __func__);
+
+   if (pvt->ast_channel.sound_generator.worker == &(pvt->ast_channel.tone_generator.sound_generator)) {
+      bcmph_unset_sound_generator(pvt);
+   }
+   else {
+      bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_NONE), 1);
+   }
+}
+
+/* Must be called with pvt->owner locked */
+static bool bcmph_set_tone_generator(bcmph_pvt_t *pvt, bcmph_dual_tone_sequence_t *tone_def)
+{
+   bool ret;
+
+   bcm_pr_debug("%s()\n", __func__);
+
+   bcm_assert(((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
+      && (NULL != tone_def));
+
+   if (tone_def->part_count > 0) {
+      bcmph_dual_tone_generator_init(&(pvt->ast_channel.tone_generator), tone_def, BCMPH_VOL_TONE);
+      ret = bcmph_set_sound_generator(pvt, &(pvt->ast_channel.tone_generator.sound_generator));
+   }
+   else {
+      bcm_pr_debug("%s() failed, tone sequence is empty\n", __func__);
+      bcmph_unset_sound_generator(pvt);
+      ret = false;
+   }
+   return (ret);
+}
+
+/* Must be called with pvt->owner locked. */
+static void bcmph_send_sound_generator_data(bcmph_pvt_t *pvt,
+   bcmph_monitor_prms_t *monitor_prms)
+{
+   /*
+    If possible when we exit we set a timeout that correspond to the
+    number of samples in the ring buffer still to be sent, minus
+    (2 * bcmph_monitor_short_timeout)
+   */
+   int timeout;
+
+   bcm_assert(
+      (bcmph_is_sound_generator_ready(pvt))
+      && (NULL != pvt->ast_channel.sound_generator.worker)
+      && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
+      && (NULL != monitor_prms) && (monitor_prms->channel_is_locked)
+      && ((BCMPH_MODE_OFF_TALKING == pvt->ast_channel.current_mode)
+          || (BCMPH_MODE_ON_TALKING == pvt->ast_channel.current_mode)));
+
+   if (!bcmph_mmap_trylock(pvt->channel)) {
+      bcm_ring_buf_t *rb = &(pvt->ast_channel.mmap.dev_tx_ring_buf);
+      size_t free_space_in_samples = bcm_ring_buf_get_free_space(rb) / pvt->ast_channel.bytes_per_sample;
+      size_t min_buffer_len = (*(pvt->ast_channel.sound_generator.worker->vtbl->get_min_buffer_len))(pvt->ast_channel.sound_generator.worker);
+      size_t total_written = 0;
+      /* We set an upper limit to the number of samples generated */
+      if (free_space_in_samples > (50 * BCMPH_SAMPLES_PER_MS)) {
+         free_space_in_samples = (50 * BCMPH_SAMPLES_PER_MS);
+      }
+      while (free_space_in_samples >= min_buffer_len) {
+         size_t len;
+         __u8 *ptr = bcm_ring_buf_get_ptr_store(rb, &(len));
+         len /= pvt->ast_channel.bytes_per_sample;
+         if (len > free_space_in_samples) {
+            len = free_space_in_samples;
+         }
+         if ((len < min_buffer_len)
+             || (NULL != pvt->ast_channel.sound_generator.post_process_fn)) {
+            __s16 tmp[384];
+            len = free_space_in_samples;
+            if (len > ARRAY_SIZE(tmp)) {
+               bcm_assert(ARRAY_SIZE(tmp) >= min_buffer_len);
+               len = ARRAY_SIZE(tmp);
+            }
+            len = (*(pvt->ast_channel.sound_generator.worker->vtbl->write))(
+               pvt->ast_channel.sound_generator.worker, tmp, len);
+            if (0 == len) {
+               /* Sound generation completed */
+               bcmph_unset_sound_generator(pvt);
+               break;
+            }
+            if (NULL != pvt->ast_channel.sound_generator.post_process_fn) {
+               bcm_assert(sizeof(__s16) >= pvt->ast_channel.bytes_per_sample);
+               (*(pvt->ast_channel.sound_generator.post_process_fn))(tmp, len);
+            }
+            else {
+               bcm_assert(sizeof(__s16) == pvt->ast_channel.bytes_per_sample);
+            }
+            bcm_ring_buf_add(rb, (__u8 *)(tmp), len * pvt->ast_channel.bytes_per_sample);
+         }
+         else {
+            /*
+             ptr can't be unaligned with _s16 because we (the producer)
+             puts (n * (pvt->ast_channel.bytes_per_sample)) bytes and
+             the driver (the consumer) removes
+             (n * (pvt->ast_channel.bytes_per_sample)) to fill DMA
+             buffers
+            */
+            bcm_assert((sizeof(__s16) == pvt->ast_channel.bytes_per_sample)
+               && (0 == (((uintptr_t)((void *)(ptr))) & 0x01)));
+            len = (*(pvt->ast_channel.sound_generator.worker->vtbl->write))(
+               pvt->ast_channel.sound_generator.worker, (__s16 *)(ptr), len);
+            if (0 == len) {
+               /* Sound generation completed */
+               bcmph_unset_sound_generator(pvt);
+               break;
+            }
+            bcm_ring_buf_add_len(rb, len * pvt->ast_channel.bytes_per_sample);
+         }
+         total_written += len;
+         free_space_in_samples -= len;
+      }
+      if (total_written > 0) {
+         total_written *= pvt->ast_channel.bytes_per_sample;
+         if (bcmph_do_ioctl(pvt->channel, BCMPH_IOCTL_WRITE_MM, (unsigned long)((total_written << 8) | pvt->index_line), true)) {
+            bcmph_mmap_unlock(pvt->channel);
+            ast_log(AST_LOG_ERROR, "Can't add data in TX buffer of line %lu\n", (unsigned long)(pvt->index_line + 1));
+            timeout = bcmph_monitor_short_timeout;
+         }
+         else {
+            bcmph_update_ring_bufs_desc(pvt->channel);
+            timeout = (int)(bcm_ring_buf_get_size(rb) / (pvt->ast_channel.bytes_per_sample * BCMPH_SAMPLES_PER_MS));
+            bcmph_mmap_unlock(pvt->channel);
+         }
+      }
+      else {
+         timeout = (int)(bcm_ring_buf_get_size(rb) / (pvt->ast_channel.bytes_per_sample * BCMPH_SAMPLES_PER_MS));
+         bcmph_mmap_unlock(pvt->channel);
+      }
+      if (timeout > (2 * bcmph_monitor_short_timeout)) {
+         timeout -= (2 * bcmph_monitor_short_timeout);
+      }
+      if (timeout < bcmph_monitor_short_timeout) {
+         timeout = bcmph_monitor_short_timeout;
+      }
+   }
+   else {
+      timeout = bcmph_monitor_short_timeout;
+   }
+
+   bcmph_change_monitor_timeout(monitor_prms, timeout);
+}
+
+/* Must be called with pvt->owner locked */
+static inline int bcmph_set_line_codec_for_sound_generator(
+   bcmph_pvt_t *pvt, bcm_phone_line_mode_t mode, int reverse_polarity)
+{
+   int ret;
+   int echo_cancellation = -1;
+
+   bcm_assert((bcmph_is_sound_generator_ready(pvt))
+      && ((BCMPH_MODE_OFF_TALKING == mode) || (BCMPH_MODE_ON_TALKING == mode)));
+
+   if ((BCMPH_MODE_OFF_TALKING == mode) && (NULL != pvt->owner)) {
+      echo_cancellation = 1;
+   }
+   else {
+      echo_cancellation = 0;
+   }
+   ret = _bcmph_set_line_codec(pvt,
+      pvt->ast_channel.sound_generator.format, mode, echo_cancellation,
+      reverse_polarity, BCMPH_TONE_NONE);
+   if (ret) {
+      bcmph_unset_sound_generator(pvt);
+   }
+   return (ret);
+}
+
+/* Must be called with pvt->owner locked */
+static inline int bcmph_set_line_codec(bcmph_pvt_t *pvt,
+   const bcmph_ast_format *format, bcm_phone_line_mode_t mode,
+   int echo_cancellation, int reverse_polarity,
+   bcm_phone_line_tone_t tone)
+{
+   /* We must cancel sound generator as we change codec */
+   bcmph_unset_sound_generator(pvt);
+   return (_bcmph_set_line_codec(pvt, format, mode, echo_cancellation,
+      reverse_polarity, tone));
+}
+
 /* Must be called with pvt->owner locked */
 static inline void bcmph_reset_pvt_monitor_state(bcmph_pvt_t *pvt)
 {
-   bcm_pr_debug("bcmph_reset_pvt_monitor_state()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((NULL == pvt->owner) || (pvt->owner_lock_count > 0));
 
@@ -1169,25 +1850,25 @@ static inline void bcmph_reset_pvt_monitor_state(bcmph_pvt_t *pvt)
 static void bcmph_set_new_state(bcmph_pvt_t *pvt,
    bcmph_state_t new_state, bcmph_event_t cause)
 {
-   bcm_pr_debug("bcmph_set_new_state(new_state=%d, cause=%d)\n",
+   bcm_pr_debug("%s(new_state=%d, cause=%d)\n", __func__,
       (int)(new_state), (int)(cause));
 
    bcm_assert((NULL == pvt->owner) || (pvt->owner_lock_count > 0));
 
    switch (new_state) {
       case BCMPH_ST_DISCONNECTED: {
-         bcm_assert((BCMPH_STATUS_DISCONNECTED == pvt->ast_channel.current_status)
-            && (NULL == pvt->owner));
+         bcm_assert(NULL == pvt->owner);
          bcm_assert(BCMPH_EV_DISCONNECTED == cause);
-         bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, BCMPH_TONE_NONE, 0);
+         bcmph_set_line_mode(pvt, BCMPH_MODE_DISCONNECT, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE, 0);
          break;
       }
       case BCMPH_ST_ON_IDLE: {
          bcm_assert((BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status)
             && (NULL == pvt->owner));
-         bcm_assert((BCMPH_EV_AST_HANGUP == cause) || (BCMPH_EV_INTERNAL_ERROR == cause) || (BCMPH_EV_ON_HOOK == cause));
-         /* We reset the mode to BCMPH_MODE_IDLE */
-         bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, BCMPH_TONE_NONE, 0);
+         bcm_assert((BCMPH_EV_INIT == cause) || (BCMPH_EV_AST_HANGUP == cause)
+            || (BCMPH_EV_INTERNAL_ERROR == cause) || (BCMPH_EV_ON_HOOK == cause));
+         bcmph_unset_sound_generator(pvt);
+         bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE, 0);
          bcmph_reset_pvt_monitor_state(pvt);
          pvt->ast_channel.bytes_not_written_len = 0;
          break;
@@ -1217,7 +1898,7 @@ static void bcmph_set_new_state(bcmph_pvt_t *pvt,
           pvt->line_cfg->dialing_timeout_1st_digit milliseconds
          */
          pvt->ast_channel.search_extension = true;
-         pvt->ast_channel.tv_last_digit = ast_tvnow();
+         pvt->ast_channel.tv_wait = ast_tvnow();
          break;
       }
       case BCMPH_ST_OFF_WAITING_ANSWER: {
@@ -1227,6 +1908,7 @@ static void bcmph_set_new_state(bcmph_pvt_t *pvt,
             && (BCMPH_EV_OFF_HOOK == cause) && (!pvt->line_cfg->monitor_dialing))
                     || ((BCMPH_ST_OFF_DIALING == pvt->ast_channel.state)
             && (BCMPH_EV_EXT_FOUND == cause)));
+         bcmph_unset_sound_generator(pvt);
          /*
           We forget all digits dialed
          */
@@ -1240,19 +1922,29 @@ static void bcmph_set_new_state(bcmph_pvt_t *pvt,
             && (BCMPH_EV_OFF_HOOK == cause))
                 || ((BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state)
                     && (BCMPH_EV_AST_ANSWER == cause)));
+         bcmph_unset_sound_generator(pvt);
          break;
       }
       case BCMPH_ST_OFF_NO_SERVICE: {
+         bcm_phone_line_tone_t tone;
          bcm_assert((BCMPH_STATUS_OFF_HOOK == pvt->ast_channel.current_status)
             && (NULL == pvt->owner));
          bcm_assert(((BCMPH_ST_OFF_DIALING == pvt->ast_channel.state) && (BCMPH_EV_NO_EXT_CAN_BE_FOUND == cause))
+            || (BCMPH_EV_INIT == cause)
             || (BCMPH_EV_AST_HANGUP == cause)
             || (BCMPH_EV_INTERNAL_ERROR == cause));
          if (BCMPH_EV_AST_HANGUP == cause) {
-            bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, BCMPH_TONE_BUSY, 0);
+            tone = BCMPH_TONE_BUSY;
+            bcmph_set_tone_generator(pvt, &(pvt->channel->config.tone_busy));
          }
          else {
-            bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, BCMPH_TONE_INVALID, 0);
+            tone = BCMPH_TONE_INVALID;
+            bcmph_set_tone_generator(pvt, &(pvt->channel->config.tone_congestion));
+         }
+         if ((!bcmph_is_sound_generator_ready(pvt))
+             || (bcmph_set_line_codec_for_sound_generator(pvt,
+                  BCMPH_MODE_OFF_TALKING, pvt->line_cfg->reverse_polarity))) {
+            bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, 0, pvt->line_cfg->reverse_polarity, tone, 0);
          }
          bcmph_reset_pvt_monitor_state(pvt);
          pvt->ast_channel.bytes_not_written_len = 0;
@@ -1262,13 +1954,205 @@ static void bcmph_set_new_state(bcmph_pvt_t *pvt,
    pvt->ast_channel.state = new_state;
 }
 
+/* Must be called with pvt->owner locked (and even with NULL == pvt->owner) */
+static bool bcmph_set_new_state_off_dialing(bcmph_pvt_t *pvt,
+   bcmph_monitor_prms_t *monitor_prms, bcmph_event_t cause)
+{
+   bool ret = false;
+   bcmph_state_t new_state = BCMPH_ST_OFF_DIALING;
+
+   bcm_pr_debug("%s()\n", __func__);
+
+   bcm_assert((NULL == pvt->owner)
+      && (NULL != monitor_prms) && (monitor_prms->channel_is_locked));
+
+   bcmph_set_tone_generator(pvt, &(pvt->channel->config.tone_dial));
+
+   if (!(pvt->line_cfg->detect_dtmf & DETECT_DTMF_WHEN_DIALING)) {
+      /*
+       We generate tone BCMPH_TONE_WAITING_DIAL and just wait that the driver
+       transmit some digits that we use to search for an extension
+      */
+      if (bcmph_is_sound_generator_ready(pvt)) {
+         if (bcmph_set_line_codec_for_sound_generator(pvt,
+                BCMPH_MODE_OFF_TALKING, pvt->line_cfg->reverse_polarity)) {
+            new_state = BCMPH_ST_OFF_NO_SERVICE;
+            cause = BCMPH_EV_INTERNAL_ERROR;
+         }
+      }
+      else {
+         bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_WAITING_DIAL, 0);
+      }
+   }
+   else {
+      /*
+       We generate tone BCMPH_TONE_WAITING_DIAL and set the mode to
+       BCMPH_MODE_OFF_TALKING to receive audio data in which we try to detect
+       DTMF tones that code the digits we use to search for an extension
+      */
+      if (bcmph_is_sound_generator_ready(pvt)) {
+         /* Codec already fixed by sound generator */
+         if (bcmph_set_line_codec_for_sound_generator(pvt,
+               BCMPH_MODE_OFF_TALKING, pvt->line_cfg->reverse_polarity)) {
+            new_state = BCMPH_ST_OFF_NO_SERVICE;
+            cause = BCMPH_EV_INTERNAL_ERROR;
+         }
+      }
+      else {
+         /*
+          slin is the recommended codec for frames processed by dsp
+          (because samples are directly used without conversion)
+         */
+         bcmph_ast_format *format;
+         if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
+            format = ast_format_slin;
+         }
+         else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_ulaw)) {
+            format = ast_format_ulaw;
+         }
+         else {
+            bcm_assert(bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_alaw));
+            format = ast_format_alaw;
+         }
+         if (bcmph_set_line_codec(pvt, format, BCMPH_MODE_OFF_TALKING, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_WAITING_DIAL)) {
+            new_state = BCMPH_ST_OFF_NO_SERVICE;
+            cause = BCMPH_EV_INTERNAL_ERROR;
+         }
+      }
+   }
+   if (BCMPH_ST_OFF_DIALING == new_state) {
+      bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.monitor_busy_period);
+      ret = true;
+   }
+   bcmph_set_new_state(pvt, new_state, cause);
+
+   return (ret);
+}
+
+static inline bool bcmph_is_ring_stage_really_ringing(
+   int ring_stage)
+{
+   return ((ring_stage % 2) ? false : true);
+}
+
+static inline bool bcmph_is_ring_stage_used_to_send_cid_data(
+   const bcmph_pvt_t *pvt, int ring_stage)
+{
+   if ((bcmph_is_sound_generator_ready(pvt))
+       && ((BCMPH_RING_STAGE_SEND_CID_BEFORE_RING == ring_stage)
+           || (BCMPH_RING_STAGE_SEND_CID_AFTER_RING == ring_stage))) {
+      bcm_assert(pvt->ast_channel.sound_generator.worker == &(pvt->ast_channel.cid_generator.sound_generator));
+      return (true);
+   }
+   else {
+      return (false);
+   }
+}
+
+/* Must be called with pvt->owner locked. */
+static bool bcmph_start_sending_cid_data(bcmph_pvt_t *pvt)
+{
+   bool ret = false;
+   int reverse_polarity = pvt->line_cfg->reverse_polarity;
+
+   bcm_pr_debug("%s()\n", __func__);
+
+   bcm_assert((NULL == pvt->owner) || (pvt->owner_lock_count > 0));
+
+   if ((BCMPH_CID_START_POLARITY == pvt->line_cfg->cid_start)
+       || (BCMPH_CID_START_POLARITY_DTMF == pvt->line_cfg->cid_start)) {
+      reverse_polarity ^= 1;
+   }
+   if (!bcmph_set_line_codec_for_sound_generator(pvt, BCMPH_MODE_ON_TALKING, reverse_polarity)) {
+      bcm_pr_debug("Start sending CID data\n");
+      ret = true;
+   }
+   return (ret);
+}
+
+/* Must be called with pvt->owner locked. */
+static bool bcmph_set_new_state_on_ringing(bcmph_pvt_t *pvt,
+   const char *addr, const char *cid_name, const char *cid_number)
+{
+   bool ret = false;
+
+   bcm_pr_debug("%s()\n", __func__);
+
+   bcm_assert((NULL != pvt->owner) && (pvt->owner_lock_count > 0));
+
+   do { /* Empty loop */
+      bcm_assert((NULL != pvt->channel->config.ring.cadence)
+         && (pvt->channel->config.ring.cadence_len > 0)
+         && (bcmph_is_ring_stage_really_ringing(pvt->channel->config.ring.cadence_len)));
+
+      pvt->ast_channel.ring_stage = 0;
+      if (BCMPH_NO_CID != pvt->line_cfg->cid_signalling) {
+         bcmph_callerid_generator_init(&(pvt->ast_channel.cid_generator),
+            cid_name, cid_number, pvt->line_cfg->cid_signalling,
+            pvt->line_cfg->cid_start, 0);
+         bcmph_set_sound_generator(pvt, &(pvt->ast_channel.cid_generator.sound_generator));
+         if (bcmph_is_sound_generator_ready(pvt)) {
+            if (BCMPH_CID_START_RING_PULSE == pvt->line_cfg->cid_start) {
+               pvt->ast_channel.ring_stage = BCMPH_RING_STAGE_RING_PULSE;
+            }
+            else if (BCMPH_CID_START_RING != pvt->line_cfg->cid_start) {
+               pvt->ast_channel.ring_stage = BCMPH_RING_STAGE_SEND_CID_BEFORE_RING;
+            }
+         }
+      }
+
+      bcm_pr_debug("Ringing '%s' on '%s' (with CID \"%s\" <%s>)\n",
+         addr, bcmph_ast_channel_name(pvt->owner), cid_name, cid_number);
+
+      if (bcmph_is_ring_stage_used_to_send_cid_data(pvt,
+            pvt->ast_channel.ring_stage)) {
+         bcm_assert(!bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage));
+         if (!bcmph_start_sending_cid_data(pvt)) {
+            break;
+         }
+         else {
+            bcmph_monitor_prms_t monitor_prms;
+            memset(&(monitor_prms), 0, sizeof(monitor_prms));
+            monitor_prms.channel_is_locked = true;
+            monitor_prms.timeout = 0;
+            bcmph_send_sound_generator_data(pvt, &(monitor_prms));
+         }
+      }
+      else {
+         bcm_assert(bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage));
+         /*
+          Here it's important to handle the return code of bcmph_set_line_mode()
+          because if the user can't hear the phone ringing, there's a very
+          very little chance that he hooks off the phone
+         */
+         if (bcmph_set_line_mode(pvt, BCMPH_MODE_ON_RINGING, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE, -1)) {
+            /* Cancel sound generator because it's useless */
+            bcmph_unset_sound_generator(pvt);
+            break;
+         }
+      }
+
+      /*
+       Init time to calculate delay between switches from ring on
+       to ring off, or the reverse
+      */
+      pvt->ast_channel.tv_wait = ast_tvnow();
+
+      bcmph_set_new_state(pvt, BCMPH_ST_ON_RINGING, BCMPH_EV_AST_CALL);
+
+      ret = true;
+   } while (false);
+
+   return (ret);
+}
+
 /* Must be called with pvt->owner and monitor.lock locked */
 static void bcmph_unlink_from_ast_channel(bcmph_pvt_t *pvt,
    bcmph_event_t cause, bool unlock_ast_channel)
 {
    struct ast_channel *ast = pvt->owner;
 
-   bcm_pr_debug("bcmph_unlink_from_ast_channel(cause=%d)\n", (int)(cause));
+   bcm_pr_debug("%s(cause=%d)\n", __func__, (int)(cause));
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && (NULL != pvt->owner) && (pvt->owner_lock_count > 0));
@@ -1281,15 +2165,15 @@ static void bcmph_unlink_from_ast_channel(bcmph_pvt_t *pvt,
    pvt->owner = NULL;
    ast_setstate(ast, AST_STATE_DOWN);
    /* Set state before unlocking the channel */
-   if (BCMPH_STATUS_OFF_HOOK == pvt->ast_channel.current_status) {
+   if (BCMPH_EV_DISCONNECTED == cause) {
+      bcmph_set_new_state(pvt, BCMPH_ST_DISCONNECTED, BCMPH_EV_DISCONNECTED);
+   }
+   else if (BCMPH_STATUS_OFF_HOOK == pvt->ast_channel.current_status) {
       bcmph_set_new_state(pvt, BCMPH_ST_OFF_NO_SERVICE, cause);
    }
-   else if (BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status) {
-      bcmph_set_new_state(pvt, BCMPH_ST_ON_IDLE, cause);
-   }
    else {
-      bcm_assert(BCMPH_STATUS_DISCONNECTED == pvt->ast_channel.current_status);
-      bcmph_set_new_state(pvt, BCMPH_ST_DISCONNECTED, BCMPH_EV_DISCONNECTED);
+      bcm_assert(BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status);
+      bcmph_set_new_state(pvt, BCMPH_ST_ON_IDLE, cause);
    }
    bcm_pr_debug("Line %lu unlink from channel '%s'.\n",
       (unsigned long)(pvt->index_line + 1), bcmph_ast_channel_name(ast));
@@ -1317,7 +2201,7 @@ static void bcmph_new(bcmph_pvt_t *pvt,
    struct ast_channel *tmp;
    enum ast_channel_state ast_state;
 
-   bcm_pr_debug("bcmph_new(state=%d, cause=%d)\n",
+   bcm_pr_debug("%s(state=%d, cause=%d)\n", __func__,
       (int)(state), (int)(cause));
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
@@ -1399,6 +2283,12 @@ static void bcmph_new(bcmph_pvt_t *pvt,
       /* Set channel tech */
       bcmph_ast_channel_tech_set(tmp, &(pvt->channel->chan_tech));
 
+      /* Set tone zone */
+      if (NULL != pvt->channel->config.tone_zone) {
+         /* When channel is destroyed by Asterisk, tone_zone is unref automatically */
+         bcmph_ast_channel_zone_set(tmp, ast_tone_zone_ref(pvt->channel->config.tone_zone));
+      }
+
       bcmph_ast_channel_nativeformats_set(tmp, bcmph_get_line_cfg_cap(pvt->line_cfg));
       if ((pvt->line_cfg->detect_dtmf & (DETECT_DTMF_BEFORE_CONNECTION | DETECT_DTMF_WHEN_CONNECTED))) {
          if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
@@ -1452,8 +2342,13 @@ static void bcmph_new(bcmph_pvt_t *pvt,
 
       if (AST_STATE_DOWN != ast_state) {
          bcm_assert(BCMPH_ST_OFF_WAITING_ANSWER == state);
-         /* Set line codec, switch to mode BCMPH_MODE_OFF_TALKING and stop tone */
-         if (bcmph_set_line_codec(pvt, tmpfmt, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_NONE)) {
+         /*
+          Set line codec, switch to mode BCMPH_MODE_OFF_TALKING and stop
+          tone. We turn on echo canceller because we don't know what
+          Asterisk does with the frames we read from device and send to
+          it
+         */
+         if (bcmph_set_line_codec(pvt, tmpfmt, BCMPH_MODE_OFF_TALKING, 1, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE)) {
             hangup = true;
          }
          /* Start channel's thread */
@@ -1524,7 +2419,7 @@ static int bcmph_setup(bcmph_pvt_t *pvt,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcmph_setup(ast_state=%d)\n", (int)(ast_state));
+   bcm_pr_debug("%s(ast_state=%d)\n", __func__, (int)(ast_state));
 
    bcm_assert((NULL != pvt->owner) && (pvt->owner_lock_count > 0));
 
@@ -1539,7 +2434,7 @@ static int bcmph_setup(bcmph_pvt_t *pvt,
          ret = -1;
          break;
       }
-      if (bcmph_set_line_codec(pvt, format, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_NONE)) {
+      if (bcmph_set_line_codec(pvt, format, BCMPH_MODE_OFF_TALKING, 1, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE)) {
          ret = -1;
          break;
       }
@@ -1560,7 +2455,7 @@ static struct ast_frame *bcmph_read_frame(bcmph_pvt_t *pvt, bool detect_dtmf, bo
 {
    struct ast_frame *ret = NULL;
 
-   /* bcm_pr_debug("bcmph_read_frame()\n"); */
+   /* bcm_pr_debug("%s()\n", __func__); */
 
    bcm_assert((NULL != unlock_mmap) && (*unlock_mmap)
       && (pvt->channel->mmap.lock_count > 0)
@@ -1609,7 +2504,7 @@ static bool bcmph_queue_read(bcmph_pvt_t *pvt, bool *unlock_mmap)
 {
    bool ret = false;
 
-   /* bcm_pr_debug("bcmph_queue_read()\n"); */
+   /* bcm_pr_debug("%s()\n", __func__); */
 
    bcm_assert((NULL != unlock_mmap) && (*unlock_mmap)
       && (pvt->channel->mmap.lock_count > 0)
@@ -1643,10 +2538,10 @@ static bool bcmph_queue_read(bcmph_pvt_t *pvt, bool *unlock_mmap)
              buffer, because ast_queue_frame() copy the data pointed to by data.ptr
              and we call BCMPH_IOCTL_READ_MM after ast_queue_frame()
             */
-            pvt->ast_channel.frame_to_queue.data.ptr = bcm_ring_buf_get_ptr_peek(&(pvt->ast_channel.mmap.dev_rx_ring_buf), &(len_direct));
+            pvt->ast_channel.frame_to_queue.data.ptr = (void *)(bcm_ring_buf_get_ptr_load(&(pvt->ast_channel.mmap.dev_rx_ring_buf), 0, &(len_direct)));
             if (len_direct < len) {
                pvt->ast_channel.frame_to_queue.data.ptr = pvt->ast_channel.buf_fr_to_queue;
-               bcm_ring_buf_peek(&(pvt->ast_channel.mmap.dev_rx_ring_buf), pvt->ast_channel.frame_to_queue.data.ptr, len);
+               bcm_ring_buf_load(&(pvt->ast_channel.mmap.dev_rx_ring_buf), 0, pvt->ast_channel.frame_to_queue.data.ptr, len);
             }
             if (ast_queue_frame(pvt->owner, &(pvt->ast_channel.frame_to_queue))) {
                ast_frfree(&(pvt->ast_channel.frame_to_queue));
@@ -1705,8 +2600,7 @@ static void bcmph_queue_hangup(bcmph_pvt_t *pvt, bcmph_event_t cause)
 {
    struct ast_channel *ast = pvt->owner;
 
-   bcm_pr_debug("bcmph_queue_hangup(cause=%d)\n",
-      (int)(cause));
+   bcm_pr_debug("%s(cause=%d)\n", __func__, (int)(cause));
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && (NULL != pvt->owner) && (pvt->owner_lock_count > 0));
@@ -1718,28 +2612,13 @@ static void bcmph_queue_hangup(bcmph_pvt_t *pvt, bcmph_event_t cause)
    }
 }
 
-static inline void bcmph_change_monitor_timeout(
-   bcmph_monitor_prms_t *monitor_prms, int timeout)
-{
-   /* bcm_pr_debug("bcmph_change_monitor_timeout(timeout=%d)\n",
-      (int)(timeout)); */
-
-   bcm_assert((timeout > 0) && (NULL != monitor_prms));
-   if (timeout < monitor_prms->timeout) {
-      monitor_prms->timeout = timeout;
-   }
-}
-
 /*
  Must be called with pvt->owner and monitor.lock locked.
 */
 static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, bcm_phone_line_status_t new_status)
 {
-   /*
-   bcm_pr_debug("bcmph_handle_status_change(new_status=%d)\n",
-      (int)(new_status));
-   */
+   /* bcm_pr_debug("%s(new_status=%d)\n", __func__, (int)(new_status)); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -1752,6 +2631,7 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
       if ((BCMPH_ST_ON_RINGING == pvt->ast_channel.state)
           || (BCMPH_ST_ON_PRE_RINGING == pvt->ast_channel.state)) {
          bcm_assert(NULL != pvt->owner);
+
          /*
           bcmph_chan_request() has created the channel.
           Either bcmph_chan_call() has been called so the phone
@@ -1763,8 +2643,10 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
           and emit the tone busy to the user.
          */
          bool hangup = true;
+
          if (BCMPH_ST_ON_RINGING == pvt->ast_channel.state) {
             bcm_assert(AST_STATE_RINGING == bcmph_ast_channel_state(pvt->owner));
+
             /* The user wants to answer the call */
             if (bcmph_setup(pvt, bcmph_ast_channel_rawreadformat(pvt->owner), AST_STATE_UP)) {
                ast_log(AST_LOG_ERROR, "Unable to answer the call on '%s'\n", bcmph_ast_channel_name(pvt->owner));
@@ -1791,7 +2673,7 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
          if (hangup) {
             bcmph_queue_hangup(pvt, BCMPH_EV_INTERNAL_ERROR);
             /* ast_channel_unlock(pvt->owner) is done in bcmph_queue_hangup() */
-            bcm_assert((NULL == pvt->owner) && (BCMPH_ST_OFF_NO_SERVICE == pvt->ast_channel.state));
+            bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count) && (BCMPH_ST_OFF_NO_SERVICE == pvt->ast_channel.state));
          }
       }
       else {
@@ -1801,8 +2683,6 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
             && (NULL == pvt->owner));
          /* The user has picked up the phone to make a call */
          if (pvt->line_cfg->monitor_dialing) {
-            bcmph_state_t new_state = BCMPH_ST_OFF_DIALING;
-            bcmph_event_t cause = BCMPH_EV_OFF_HOOK;
             /*
              We do not create an ast_channel now
              We just change the tone to BCMPH_TONE_WAITING_DIAL, and
@@ -1810,40 +2690,7 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
              When the digits will form a valid extension then we will
              create the ast_channel dedicated to handle the call
             */
-            if (!(pvt->line_cfg->detect_dtmf & DETECT_DTMF_WHEN_DIALING)) {
-               bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, BCMPH_TONE_WAITING_DIAL, 0);
-            }
-            else {
-               /*
-                We set the mode to BCMPH_MODE_OFF_TALKING to receive
-                audio data in which we try to detect DTMF tones
-               */
-               bcmph_ast_format *tmpfmt;
-               /*
-                AST_FORMAT_SLINEAR is the recommended codec for frames
-                processed by dsp
-               */
-               tmpfmt = ast_format_slin;
-               if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt)) {
-                  /*
-                   AST_FORMAT_SLINEAR is not supported by the line,
-                   so we fall back to ULAW or ALAW
-                  */
-                  tmpfmt = ast_format_ulaw;
-                  if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt)) {
-                     tmpfmt = ast_format_alaw;
-                     bcm_assert(bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), tmpfmt));
-                  }
-               }
-               if (bcmph_set_line_codec(pvt, tmpfmt, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_WAITING_DIAL)) {
-                  new_state = BCMPH_ST_OFF_NO_SERVICE;
-                  cause = BCMPH_EV_INTERNAL_ERROR;
-               }
-               else {
-                  bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.monitor_busy_period);
-               }
-            }
-            bcmph_set_new_state(pvt, new_state, cause);
+            bcmph_set_new_state_off_dialing(pvt, monitor_prms, BCMPH_EV_OFF_HOOK);
          }
          else { /* (!pvt->line_cfg->monitor_dialing) */
             /*
@@ -1859,26 +2706,17 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
       }
    }
    else { /* (BCMPH_STATUS_OFF_HOOK != new_status) */
-      bcmph_state_t new_state;
-      bcmph_event_t cause;
-      if (BCMPH_STATUS_ON_HOOK == new_status) {
-         /*
-          At least one off hook to on hook transition
-         */
-         new_state = BCMPH_ST_ON_IDLE;
-         cause = BCMPH_EV_ON_HOOK;
-      }
-      else {
-         bcm_assert(BCMPH_STATUS_DISCONNECTED == new_status);
-         ast_log(AST_LOG_WARNING, "Line %lu has been disconnected\n", (unsigned long)(pvt->index_line + 1));
-         new_state = BCMPH_ST_DISCONNECTED;
-         cause = BCMPH_EV_DISCONNECTED;
-      }
-      /* Gone on hook or disconnected, so notify hangup */
+      bcmph_state_t new_state = BCMPH_ST_ON_IDLE;
+      bcmph_event_t cause = BCMPH_EV_ON_HOOK;
+      bcm_assert(BCMPH_STATUS_ON_HOOK == new_status);
+      /*
+       At least one off hook to on hook transition
+      */
       if (NULL != pvt->owner) {
+         /* Gone on hook so notify hangup */
          bcmph_queue_hangup(pvt, cause);
          /* ast_channel_unlock(pvt->owner) is done in bcmph_queue_hangup() */
-         bcm_assert(NULL == pvt->owner);
+         bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count) && (new_state == pvt->ast_channel.state));
       }
       else {
          bcmph_set_new_state(pvt, new_state, cause);
@@ -1892,16 +2730,29 @@ static void bcmph_handle_status_change(bcmph_pvt_t *pvt,
 static void bcmph_handle_mode_change(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, bcm_phone_line_mode_t new_mode)
 {
-   /*
-   bcm_pr_debug("bcmph_handle_mode_change(new_mode=%d)\n",
-      (int)(new_mode));
-   */
+   /* bcm_pr_debug("%s(new_mode=%d)\n", __func__, (int)(new_mode)); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
       && (NULL != monitor_prms) && (monitor_prms->channel_is_locked));
 
-   pvt->ast_channel.current_mode = new_mode;
+   if (pvt->ast_channel.current_mode != new_mode) {
+      pvt->ast_channel.current_mode = new_mode;
+      if (BCMPH_MODE_DISCONNECT == new_mode) {
+         bcmph_state_t new_state = BCMPH_ST_DISCONNECTED;
+         bcmph_event_t cause = BCMPH_EV_DISCONNECTED;
+         ast_log(AST_LOG_WARNING, "Line %lu has been disconnected\n", (unsigned long)(pvt->index_line + 1));
+         if (NULL != pvt->owner) {
+            /* Gone disconnected, so notify hangup */
+            bcmph_queue_hangup(pvt, cause);
+            /* ast_channel_unlock(pvt->owner) is done in bcmph_queue_hangup() */
+            bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count) && (new_state == pvt->ast_channel.state));
+         }
+         else {
+            bcmph_set_new_state(pvt, new_state, cause);
+         }
+      }
+   }
 }
 
 /*
@@ -1910,10 +2761,7 @@ static void bcmph_handle_mode_change(bcmph_pvt_t *pvt,
 static void bcmph_handle_tone_change(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, bcm_phone_line_tone_t new_tone)
 {
-   /*
-   bcm_pr_debug("bcmph_handle_tone_change(new_tone=%d)\n",
-      (int)(new_tone));
-   */
+   /* bcm_pr_debug("%s(new_tone=%d)\n", __func__, (int)(new_tone)); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -1928,7 +2776,7 @@ static void bcmph_handle_tone_change(bcmph_pvt_t *pvt,
 static void bcmph_search_extension(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, bool ignore_timeout)
 {
-   /* bcm_pr_debug("bcmph_search_extension(ignore_timeout=%d)\n", (int)(ignore_timeout)); */
+   /* bcm_pr_debug("%s(ignore_timeout=%d)\n", __func__, (int)(ignore_timeout)); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && (NULL == pvt->owner) && (pvt->line_cfg->monitor_dialing)
@@ -1943,7 +2791,7 @@ static void bcmph_search_extension(bcmph_pvt_t *pvt,
       if (pvt->ast_channel.digits_len <= 0) {
          if ((!ignore_timeout) && (pvt->line_cfg->dialing_timeout_1st_digit > 0)) {
             struct timeval now = ast_tvnow();
-            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
+            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_wait);
             if (tvdiff < pvt->line_cfg->dialing_timeout_1st_digit) {
                bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->line_cfg->dialing_timeout_1st_digit - tvdiff));
                break;
@@ -1956,7 +2804,7 @@ static void bcmph_search_extension(bcmph_pvt_t *pvt,
       else {
          if ((!ignore_timeout) && (pvt->line_cfg->dialing_timeout > 0)) {
             struct timeval now = ast_tvnow();
-            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
+            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_wait);
             if (tvdiff < pvt->line_cfg->dialing_timeout) {
                bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->line_cfg->dialing_timeout - tvdiff));
                break;
@@ -2006,29 +2854,28 @@ static void bcmph_search_extension(bcmph_pvt_t *pvt,
 }
 
 /*
- Must be called with pvt->owner and monitor.lock locked.
+ Must be called with pvt->owner locked.
 */
 static void bcmph_try_to_send_dtmf(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms)
 {
    bool send_a_null_frame = false;
 
-   bcm_assert((pvt->channel->monitor.lock_count > 0)
-      && (NULL != pvt->owner) && (pvt->owner_lock_count > 0)
+   bcm_assert((NULL != pvt->owner) && (pvt->owner_lock_count > 0)
       && (NULL != monitor_prms) && (monitor_prms->channel_is_locked)
       && ((BCMPH_ST_OFF_TALKING == pvt->ast_channel.state)
           || (BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state)));
 
    if (NONE != pvt->ast_channel.dtmf_sent) {
       struct timeval now = ast_tvnow();
-      int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_last_digit);
+      int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_wait);
       if (ON == pvt->ast_channel.dtmf_sent) {
          if (tvdiff < MIN_DTMF_DURATION) {
             bcmph_change_monitor_timeout(monitor_prms, (int)(MIN_DTMF_DURATION - tvdiff));
          }
          else {
             pvt->ast_channel.dtmf_sent = OFF;
-            pvt->ast_channel.tv_last_digit = ast_tvnow();
+            pvt->ast_channel.tv_wait = ast_tvnow();
             bcmph_change_monitor_timeout(monitor_prms, MIN_TIME_BETWEEN_DTMF);
             send_a_null_frame = true;
          }
@@ -2074,7 +2921,7 @@ static void bcmph_try_to_send_dtmf(bcmph_pvt_t *pvt,
       else {
          bcm_pr_debug("DTMF '%c' sent\n", (int)(pvt->ast_channel.frame_to_queue.subclass.integer));
          pvt->ast_channel.dtmf_sent = ON;
-         pvt->ast_channel.tv_last_digit = ast_tvnow();
+         pvt->ast_channel.tv_wait = ast_tvnow();
          bcmph_change_monitor_timeout(monitor_prms, MIN_DTMF_DURATION);
          pvt->ast_channel.digits_len -= 1;
          if (pvt->ast_channel.digits_len > 0) {
@@ -2090,8 +2937,7 @@ static void bcmph_try_to_send_dtmf(bcmph_pvt_t *pvt,
 static void bcmph_handle_digits(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, const char *digits, size_t digits_len)
 {
-   bcm_pr_debug("bcmph_handle_digits(digits_len=%lu)\n",
-      (unsigned long)(digits_len));
+   bcm_pr_debug("%s(digits_len=%lu)\n", __func__, (unsigned long)(digits_len));
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -2121,7 +2967,7 @@ static void bcmph_handle_digits(bcmph_pvt_t *pvt,
          while ((i < digits_len) && (pvt->ast_channel.digits_len < (ARRAY_LEN(pvt->ast_channel.digits) - 1))) {
             if (0 == pvt->ast_channel.digits_len) {
                /* We switch off the BCMPH_TONE_WAITING_DIAL tone */
-               bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_NONE), 0);
+               bcmph_unset_tone_generator(pvt);
             }
             /*
              If the digit is equal to pvt->line_cfg->search_extension_trigger,
@@ -2162,7 +3008,7 @@ static void bcmph_handle_digits(bcmph_pvt_t *pvt,
                 and we update the time last digit was dialed
                */
                pvt->ast_channel.search_extension = true;
-               pvt->ast_channel.tv_last_digit = ast_tvnow();
+               pvt->ast_channel.tv_wait = ast_tvnow();
                bcmph_change_monitor_timeout(monitor_prms, pvt->line_cfg->dialing_timeout);
             }
          }
@@ -2177,12 +3023,11 @@ static void bcmph_handle_flashes(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms, size_t flash_count)
 {
 #ifdef BCMPH_DEBUG
-   size_t i;
+   size_t flash_idx;
    char digit;
 #endif /* BCMPH_DEBUG */
 
-   bcm_pr_debug("bcmph_handle_flashes(flash_count=%lu)\n",
-      (unsigned long)(flash_count));
+   bcm_pr_debug("%s(flash_count=%lu)\n", __func__, (unsigned long)(flash_count));
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -2190,7 +3035,7 @@ static void bcmph_handle_flashes(bcmph_pvt_t *pvt,
 
 #ifdef BCMPH_DEBUG
    digit = '#';
-   for (i = 0; (i < flash_count); i += 1) {
+   for (flash_idx = 0; (flash_idx < flash_count); flash_idx += 1) {
       bcmph_handle_digits(pvt, monitor_prms, &(digit), 1);
       if (!monitor_prms->channel_is_locked) {
          break;
@@ -2213,10 +3058,128 @@ static void bcmph_handle_flashes(bcmph_pvt_t *pvt,
 /*
  Must be called with pvt->owner and monitor.lock locked.
 */
+static void bcmph_monitor_pvt_ring_state(bcmph_pvt_t *pvt,
+   bcmph_monitor_prms_t *monitor_prms)
+{
+   /* bcm_pr_debug("%s()\n", __func__); */
+
+   bcm_assert((pvt->channel->monitor.lock_count > 0)
+      && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
+      && (NULL != monitor_prms) && (monitor_prms->channel_is_locked)
+      && (BCMPH_ST_ON_RINGING == pvt->ast_channel.state));
+
+   do { /* Empty loop */
+      /*
+       We can't test pvt->ast_channel.current_mode because it's not set
+       immediately (only at next iteration of bcmph_do_monitor())
+       Instead we test pvt->ast_channel.ring_sate, if it's even or odd
+      */
+      if (bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage)) {
+         /* Phone should be ringing */
+         struct timeval now = ast_tvnow();
+         int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_wait);
+         if (pvt->ast_channel.ring_stage < 0) {
+            /* Ring pulse used as alert signal before sending CID data */
+            bcm_assert(BCMPH_RING_STAGE_RING_PULSE == pvt->ast_channel.ring_stage);
+            if (tvdiff < BCMPH_RING_PULSE_DELAY) {
+               bcmph_change_monitor_timeout(monitor_prms, (int)(BCMPH_RING_PULSE_DELAY - tvdiff));
+               break;
+            }
+         }
+         else {
+            int ring_index = pvt->ast_channel.ring_stage % pvt->channel->config.ring.cadence_len;
+            if (tvdiff < pvt->channel->config.ring.cadence[ring_index]) {
+               bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->channel->config.ring.cadence[ring_index] - tvdiff));
+               break;
+            }
+         }
+
+         /* Change to mode ON_TALKING if we need to send CID data, else change to ON_IDLE */
+         if (bcmph_is_ring_stage_used_to_send_cid_data(pvt, pvt->ast_channel.ring_stage + 1)) {
+            if (bcmph_start_sending_cid_data(pvt)) {
+               pvt->ast_channel.ring_stage += 1;
+               bcm_assert(!bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage));
+               pvt->ast_channel.tv_wait = ast_tvnow();
+               /*
+                Fill RX ring buffer with CID data
+                (bcmph_send_sound_generator_data() sets the timeout)
+               */
+               bcmph_send_sound_generator_data(pvt, monitor_prms);
+            }
+            else {
+               bcmph_queue_hangup(pvt, BCMPH_EV_INTERNAL_ERROR);
+               bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count) && (BCMPH_ST_ON_IDLE == pvt->ast_channel.state));
+            }
+         }
+         else {
+            bcm_assert(pvt->ast_channel.ring_stage >= 0);
+            if (!bcmph_set_line_mode(pvt, BCMPH_MODE_IDLE, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE, 0)) {
+               pvt->ast_channel.ring_stage += 1;
+               bcm_assert(!bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage));
+               pvt->ast_channel.tv_wait = ast_tvnow();
+               bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.ring.cadence[pvt->ast_channel.ring_stage % pvt->channel->config.ring.cadence_len]);
+            }
+            else {
+               /*
+                We ignore failure to set the mode and continue ringing.
+                We just omit to increment ring_stage
+               */
+               bcmph_change_monitor_timeout(monitor_prms, bcmph_monitor_short_timeout);
+            }
+         }
+      }
+      else {
+         /* Phone should not be ringing */
+         if (bcmph_is_ring_stage_used_to_send_cid_data(pvt, pvt->ast_channel.ring_stage)) {
+            /*
+             If there are still CID data to send, we send them and
+             ignore any timeout.
+             And even if after call to bcmph_send_cid_data() there's no
+             more data to send, we do not switch to mode ON_RINGING now,
+             but only the next time this function is called, in order to
+             let CID data be actually sent on the PCM bus.
+            */
+            bcmph_send_sound_generator_data(pvt, monitor_prms);
+            break;
+         }
+         /* No more CID data to send, should the phone continues ringing ? */
+         if (pvt->ast_channel.ring_stage >= 0) {
+            struct timeval now = ast_tvnow();
+            int64_t tvdiff = ast_tvdiff_ms(now, pvt->ast_channel.tv_wait);
+            int ring_index = pvt->ast_channel.ring_stage % pvt->channel->config.ring.cadence_len;
+            if (tvdiff < pvt->channel->config.ring.cadence[ring_index]) {
+               bcmph_change_monitor_timeout(monitor_prms, (int)(pvt->channel->config.ring.cadence[ring_index] - tvdiff));
+               break;
+            }
+         }
+         else {
+            bcm_assert((pvt->ast_channel.ring_stage + 1) >= 0);
+         }
+         /* Don't forget to restore polarity */
+         if (!bcmph_set_line_mode(pvt, BCMPH_MODE_ON_RINGING, 0, pvt->line_cfg->reverse_polarity, BCMPH_TONE_NONE, 0)) {
+            pvt->ast_channel.ring_stage += 1;
+            bcm_assert(bcmph_is_ring_stage_really_ringing(pvt->ast_channel.ring_stage));
+            pvt->ast_channel.tv_wait = ast_tvnow();
+            bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.ring.cadence[pvt->ast_channel.ring_stage % pvt->channel->config.ring.cadence_len]);
+         }
+         else {
+            /*
+             We ignore failure to set the mode.
+             We just omit to increment ring_stage
+            */
+            bcmph_change_monitor_timeout(monitor_prms, bcmph_monitor_short_timeout);
+         }
+      }
+   } while (false);
+}
+
+/*
+ Must be called with pvt->owner and monitor.lock locked.
+*/
 static void bcmph_monitor_pvt(bcmph_pvt_t *pvt,
    bcmph_monitor_prms_t *monitor_prms)
 {
-   /* bcm_pr_debug("bcmph_monitor_pvt()\n"); */
+   /* bcm_pr_debug("%s()\n", __func__); */
 
    bcm_assert((pvt->channel->monitor.lock_count > 0)
       && ((NULL == pvt->owner) || (pvt->owner_lock_count > 0))
@@ -2245,6 +3208,9 @@ static void bcmph_monitor_pvt(bcmph_pvt_t *pvt,
    else if (BCMPH_ST_OFF_DIALING == pvt->ast_channel.state) {
       bool new_digit_dialed = false;
       bcm_assert((NULL == pvt->owner) && (pvt->line_cfg->monitor_dialing));
+      if (bcmph_is_sound_generator_ready(pvt)) {
+         bcmph_send_sound_generator_data(pvt, monitor_prms);
+      }
       if ((pvt->line_cfg->detect_dtmf & DETECT_DTMF_WHEN_DIALING)) {
          bcmph_change_monitor_timeout(monitor_prms, pvt->channel->config.monitor_busy_period);
          for (;;) {
@@ -2289,6 +3255,14 @@ static void bcmph_monitor_pvt(bcmph_pvt_t *pvt,
           && (!new_digit_dialed)) {
          bcmph_search_extension(pvt, monitor_prms, false);
       }
+   }
+   else if (BCMPH_ST_OFF_NO_SERVICE == pvt->ast_channel.state) {
+      if (bcmph_is_sound_generator_ready(pvt)) {
+         bcmph_send_sound_generator_data(pvt, monitor_prms);
+      }
+   }
+   else if (BCMPH_ST_ON_RINGING == pvt->ast_channel.state) {
+      bcmph_monitor_pvt_ring_state(pvt, monitor_prms);
    }
 }
 
@@ -2339,6 +3313,7 @@ static void *bcmph_do_monitor(void *data)
       bcm_phone_get_line_states_t get_line_states;
       bcmph_pvt_t *pvt;
       bool line_states_are_valid = false;
+      size_t lines_using_pcm_bus;
       int res;
 
 #ifdef BCMPH_DEBUG
@@ -2381,6 +3356,7 @@ static void *bcmph_do_monitor(void *data)
 
       bcmph_monitor_lock(t);
 
+      lines_using_pcm_bus = 0;
       AST_LIST_TRAVERSE(&(t->pvt_list), pvt, list) {
          bcm_phone_line_state_t *line_state = &(pvt->monitor.line_state);
 
@@ -2397,6 +3373,15 @@ static void *bcmph_do_monitor(void *data)
                */
                bcm_phone_line_state_reset_digits(line_state);
                bcm_phone_line_state_reset_flash_count(line_state);
+            }
+
+            /*
+             We count the line that uses the PCM bus, so that at the
+             end of the loop we can start or stop the PCM
+            */
+            if ((BCMPH_MODE_OFF_TALKING == line_state->mode)
+                || (BCMPH_MODE_ON_TALKING == line_state->mode)) {
+               lines_using_pcm_bus += 1;
             }
          }
 
@@ -2436,6 +3421,7 @@ static void *bcmph_do_monitor(void *data)
                (int)(line_state->mode));
 
             bcmph_handle_mode_change(pvt, &(monitor_prms), line_state->mode);
+
             bcm_phone_line_state_reset_mode_change_count(line_state);
             if (!monitor_prms.channel_is_locked) {
                continue;
@@ -2481,27 +3467,6 @@ static void *bcmph_do_monitor(void *data)
                bcm_assert(monitor_prms.channel_is_locked);
             }
 
-            /* We test if we must start or stop PCM */
-            if (line_state->status != pvt->ast_channel.current_status) {
-               if (BCMPH_STATUS_OFF_HOOK == pvt->ast_channel.current_status) {
-                  if (t->monitor.line_off_hook_count > 0) {
-                     t->monitor.line_off_hook_count -= 1;
-                     if (0 == t->monitor.line_off_hook_count) {
-                        bcmph_stop_pcm(t);
-                     }
-                  }
-                  else {
-                     bcm_assert(false);
-                  }
-               }
-               else if (BCMPH_STATUS_OFF_HOOK == line_state->status) {
-                  if (0 == t->monitor.line_off_hook_count) {
-                     bcmph_start_pcm(t);
-                  }
-                  t->monitor.line_off_hook_count += 1;
-               }
-            }
-
             bcmph_handle_status_change(pvt, &(monitor_prms), line_state->status);
             bcm_phone_line_state_reset_status_change_count(line_state);
             if (!monitor_prms.channel_is_locked) {
@@ -2527,6 +3492,15 @@ static void *bcmph_do_monitor(void *data)
             }
          }
 
+         /* Clear rev_polarity change count */
+         if (line_state->rev_polarity_change_count > 0) {
+            bcm_pr_debug("Line %lu, rev polarity changes %lu times. Is now %d\n",
+               (unsigned long)(pvt->index_line + 1),
+               (unsigned long)(line_state->rev_polarity_change_count),
+               (int)(line_state->rev_polarity));
+            bcm_phone_line_state_reset_rev_polarity_change_count(line_state);
+         }
+
          /* Do periodic tasks */
          bcmph_monitor_pvt(pvt, &(monitor_prms));
          if (!monitor_prms.channel_is_locked) {
@@ -2542,6 +3516,21 @@ static void *bcmph_do_monitor(void *data)
          }
          monitor_prms.channel_is_locked = false;
       }
+
+      /* Start or stop PCM if needed */
+      if (line_states_are_valid) {
+         if (lines_using_pcm_bus > 0) {
+            if (!get_line_states.pcm_is_started) {
+               bcmph_start_pcm(t);
+            }
+         }
+         else {
+            if (get_line_states.pcm_is_started) {
+               bcmph_stop_pcm(t);
+            }
+         }
+      }
+
       bcmph_monitor_unlock(t);
    }
 
@@ -2622,6 +3611,8 @@ static int bcmph_start_monitor(bcmph_chan_t *t)
 
 static void bcmph_close_device(bcmph_chan_t *t)
 {
+   bcm_pr_debug("%s()\n", __func__);
+
    if (-1 != t->dev_fd) {
       if (NULL != t->mmap.dev_start_addr) {
          munmap(t->mmap.dev_start_addr, t->mmap.desc.mmap_size);
@@ -2643,7 +3634,7 @@ static int bcmph_open_device(bcmph_chan_t *t)
    bcm_assert((-1 == t->dev_fd) && (!AST_LIST_EMPTY(&(t->pvt_list))));
 
    do { /* Empty loop */
-      size_t i;
+      size_t line_idx;
       bcm_phone_cfg_params_t *phone_cfg;
       bcm_phone_get_mmap_rbs_location_t *mmap_rbs_location;
       bcm_phone_get_line_states_t *get_line_states;
@@ -2697,42 +3688,35 @@ static int bcmph_open_device(bcmph_chan_t *t)
       /* Initialize the driver */
       phone_cfg = &(t->mmap.dev_ioctl_param->p.start);
       memset(phone_cfg, 0, sizeof(*phone_cfg));
-      for (i = 0; (i < ARRAY_LEN(phone_cfg->line_params)); i += 1) {
-         phone_cfg->line_params[i].enable = 0;
+      for (line_idx = 0; (line_idx < ARRAY_LEN(phone_cfg->line_params)); line_idx += 1) {
+         phone_cfg->line_params[line_idx].enable = 0;
       }
       phone_cfg->country = t->config.country;
       phone_cfg->pcm_use_16bits_timeslot = false;
       for (pvt = AST_LIST_FIRST(&(t->pvt_list)); (NULL != pvt); pvt = AST_LIST_NEXT(pvt, list)) {
-         i = pvt->index_line;
+         line_idx = pvt->index_line;
          bcm_assert(pvt->line_cfg->enable);
-         phone_cfg->line_params[i].enable = 1;
+         phone_cfg->line_params[line_idx].enable = 1;
 
          if ((pvt->line_cfg->detect_dtmf & (DETECT_DTMF_BEFORE_CONNECTION | DETECT_DTMF_WHEN_CONNECTED))
              && (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin))) {
-            phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR;
+            phone_cfg->line_params[line_idx].codec = BCMPH_CODEC_LINEAR;
             phone_cfg->pcm_use_16bits_timeslot = true;
          }
          else {
-            /*
-             For initial config we choose the codec that uses the less timeslots
-             Even if alaw is told to be simpler to process that ulaw,
-             ulaw (which is american) is more "standard" than alaw (which is only european)
-            */
-            if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_alaw)) {
-               phone_cfg->line_params[i].codec = BCMPH_CODEC_ALAW;
-            }
-            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_ulaw)) {
-               phone_cfg->line_params[i].codec = BCMPH_CODEC_ULAW;
-            }
-            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin)) {
-               phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR;
-               phone_cfg->pcm_use_16bits_timeslot = true;
-            }
-            else if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), ast_format_slin16)) {
-               phone_cfg->line_params[i].codec = BCMPH_CODEC_LINEAR16;
-               phone_cfg->pcm_use_16bits_timeslot = true;
+            size_t codec_idx;
+            for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+               if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(pvt->line_cfg), bcmph_supported_codecs[codec_idx].ast_format)) {
+                  phone_cfg->line_params[line_idx].codec = bcmph_supported_codecs[codec_idx].codec;
+                  if (bcmph_supported_codecs[codec_idx].bytes_per_sample > 1) {
+                     phone_cfg->pcm_use_16bits_timeslot = true;
+                  }
+                  break;
+               }
             }
          }
+         phone_cfg->line_params[line_idx].echo_cancel_tap_length =
+            pvt->line_cfg->echo_cancel_tap_length;
       }
 
       t->mmap.dev_ioctl_param->size = sizeof(*phone_cfg);
@@ -2755,20 +3739,20 @@ static int bcmph_open_device(bcmph_chan_t *t)
          break;
       }
       AST_LIST_TRAVERSE(&(t->pvt_list), pvt, list) {
-         i = pvt->index_line;
-         bcm_assert(i < ARRAY_LEN(mmap_rbs_location->rbs));
-         if ((sizeof(bcm_ring_buf_desc_t) != mmap_rbs_location->rbs[i].rx_ring_buf_desc_size)
-             || (sizeof(bcm_ring_buf_desc_t) != mmap_rbs_location->rbs[i].tx_ring_buf_desc_size)) {
+         line_idx = pvt->index_line;
+         bcm_assert(line_idx < ARRAY_LEN(mmap_rbs_location->rbs));
+         if ((sizeof(bcm_ring_buf_desc_t) != mmap_rbs_location->rbs[line_idx].rx_ring_buf_desc_size)
+             || (sizeof(bcm_ring_buf_desc_t) != mmap_rbs_location->rbs[line_idx].tx_ring_buf_desc_size)) {
             ast_log(AST_LOG_ERROR, "Structures shared with the driver are not of the expected size\n");
             ret = AST_MODULE_LOAD_FAILURE;
             break;
          }
-         pvt->ast_channel.mmap.dev_rx_ring_buf_desc = (bcm_ring_buf_desc_t *)(t->mmap.dev_start_addr + mmap_rbs_location->rbs[i].rx_ring_buf_desc_off);
-         pvt->ast_channel.mmap.dev_tx_ring_buf_desc = (bcm_ring_buf_desc_t *)(t->mmap.dev_start_addr + mmap_rbs_location->rbs[i].tx_ring_buf_desc_off);
+         pvt->ast_channel.mmap.dev_rx_ring_buf_desc = (bcm_ring_buf_desc_t *)(t->mmap.dev_start_addr + mmap_rbs_location->rbs[line_idx].rx_ring_buf_desc_off);
+         pvt->ast_channel.mmap.dev_tx_ring_buf_desc = (bcm_ring_buf_desc_t *)(t->mmap.dev_start_addr + mmap_rbs_location->rbs[line_idx].tx_ring_buf_desc_off);
          bcm_ring_buf_init(&(pvt->ast_channel.mmap.dev_rx_ring_buf),
-            t->mmap.dev_start_addr + mmap_rbs_location->rbs[i].rx_buffer_offset, mmap_rbs_location->rbs[i].rx_buffer_size);
+            t->mmap.dev_start_addr + mmap_rbs_location->rbs[line_idx].rx_buffer_offset, mmap_rbs_location->rbs[line_idx].rx_buffer_size);
          bcm_ring_buf_init(&(pvt->ast_channel.mmap.dev_tx_ring_buf),
-            t->mmap.dev_start_addr + mmap_rbs_location->rbs[i].tx_buffer_offset, mmap_rbs_location->rbs[i].tx_buffer_size);
+            t->mmap.dev_start_addr + mmap_rbs_location->rbs[line_idx].tx_buffer_offset, mmap_rbs_location->rbs[line_idx].tx_buffer_size);
       }
       if (AST_MODULE_LOAD_SUCCESS != ret) {
          break;
@@ -2787,43 +3771,31 @@ static int bcmph_open_device(bcmph_chan_t *t)
          break;
       }
       bcmph_monitor_lock(t);
-      t->monitor.line_off_hook_count = 0;
       AST_LIST_TRAVERSE(&(t->pvt_list), pvt, list) {
+         size_t codec_idx;
          bcm_phone_line_state_t *line_state;
-         bcm_phone_line_mode_t mode_wanted;
-         bcm_phone_line_tone_t tone_wanted;
          if (NULL != pvt->ast_channel.current_format) {
             bcmph_ao2_ref_format(pvt->ast_channel.current_format, -1);
             pvt->ast_channel.current_format = NULL;
          }
-         i = pvt->index_line;
-         bcm_assert(i < ARRAY_LEN(get_line_states->line_state));
-         line_state = &(get_line_states->line_state[i]);
-         switch (line_state->codec) {
-            case BCMPH_CODEC_ULAW:
-               pvt->ast_channel.current_format = ast_format_ulaw;
-               pvt->ast_channel.bytes_per_sample = 1;
-               pvt->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
+         line_idx = pvt->index_line;
+         bcm_assert(line_idx < ARRAY_LEN(get_line_states->line_state));
+         line_state = &(get_line_states->line_state[line_idx]);
+         for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+            if (bcmph_supported_codecs[codec_idx].codec == line_state->codec) {
+               pvt->ast_channel.current_format = bcmph_supported_codecs[codec_idx].ast_format;
+               pvt->ast_channel.bytes_per_sample = bcmph_supported_codecs[codec_idx].bytes_per_sample;
+               if (pvt->ast_channel.bytes_per_sample < 2) {
+                  bcm_assert(1 == pvt->ast_channel.bytes_per_sample);
+                  pvt->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
+               }
+               else {
+                  pvt->ast_channel.frame_size_read = BCMPH_MAX_BUF;
+               }
                break;
-            case BCMPH_CODEC_ALAW:
-               pvt->ast_channel.current_format = ast_format_alaw;
-               pvt->ast_channel.bytes_per_sample = 1;
-               pvt->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
-               break;
-            case BCMPH_CODEC_LINEAR:
-               pvt->ast_channel.current_format = ast_format_slin;
-               pvt->ast_channel.bytes_per_sample = 2;
-               pvt->ast_channel.frame_size_read = BCMPH_MAX_BUF;
-               break;
-            case BCMPH_CODEC_LINEAR16:
-               pvt->ast_channel.current_format = ast_format_slin16;
-               pvt->ast_channel.bytes_per_sample = 4;
-               pvt->ast_channel.frame_size_read = BCMPH_MAX_BUF;
-               break;
-            default:
-               bcm_assert(false);
-               break;
+            }
          }
+         bcm_assert(codec_idx < ARRAY_SIZE(bcmph_supported_codecs));
          if (NULL != pvt->ast_channel.current_format) {
             bcmph_ao2_ref_format(pvt->ast_channel.current_format, 1);
          }
@@ -2833,37 +3805,17 @@ static int bcmph_open_device(bcmph_chan_t *t)
          pvt->ast_channel.current_tone = line_state->tone;
          pvt->ast_channel.current_status = line_state->status;
 
-         mode_wanted = BCMPH_MODE_IDLE;
-         tone_wanted = BCMPH_TONE_NONE;
+         bcm_phone_line_state_reset(&(pvt->monitor.line_state), line_state->status, false,
+            line_state->codec, line_state->mode, line_state->tone);
+
          if (BCMPH_STATUS_OFF_HOOK == pvt->ast_channel.current_status) {
-            pvt->ast_channel.state = BCMPH_ST_OFF_NO_SERVICE;
-            tone_wanted = BCMPH_TONE_INVALID;
-            t->monitor.line_off_hook_count += 1;
-         }
-         else if (BCMPH_STATUS_ON_HOOK == pvt->ast_channel.current_status) {
-            pvt->ast_channel.state = BCMPH_ST_ON_IDLE;
+            bcmph_set_new_state(pvt, BCMPH_ST_OFF_NO_SERVICE, BCMPH_EV_INIT);
          }
          else {
-            bcm_assert(BCMPH_STATUS_DISCONNECTED == pvt->ast_channel.current_status);
-            pvt->ast_channel.state = BCMPH_ST_DISCONNECTED;
+            bcmph_set_new_state(pvt, BCMPH_ST_ON_IDLE, BCMPH_EV_INIT);
          }
-         if (line_state->mode != mode_wanted) {
-            bcmph_set_line_mode(pvt, mode_wanted, tone_wanted, 0);
-         }
-         else if (line_state->tone != tone_wanted) {
-            bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(tone_wanted), 0);
-         }
-         bcm_phone_line_state_reset(&(pvt->monitor.line_state), line_state->status,
-            line_state->codec, line_state->mode, line_state->tone);
       }
 
-      if ((AST_MODULE_LOAD_SUCCESS == ret)
-          && (t->monitor.line_off_hook_count > 0)
-          && (bcmph_start_pcm(t))) {
-         bcmph_monitor_unlock(t);
-         ret = AST_MODULE_LOAD_FAILURE;
-         break;
-      }
       bcmph_monitor_unlock(t);
    } while (false);
 
@@ -2912,7 +3864,8 @@ static int bcmph_chan_call(struct ast_channel *ast,
    int ret = -1;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_call(ast='%s', addr='%s', timeout=%d)\n", bcmph_ast_channel_name(ast), addr, (int)(timeout));
+   bcm_pr_debug("%s(ast='%s', addr='%s', timeout=%d)\n", __func__,
+      bcmph_ast_channel_name(ast), addr, (int)(timeout));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -2933,9 +3886,8 @@ static int bcmph_chan_call(struct ast_channel *ast,
                   bcmph_ast_channel_name(ast));
             }
             else {
-               struct timeval utc_time = ast_tvnow();
-               struct ast_tm tm;
-               bcm_phone_cid_t cid;
+               char cid_name[64];
+               char cid_number[64];
 
                /*
                 bcmph_chan_call() can't be called if
@@ -2948,44 +3900,27 @@ static int bcmph_chan_call(struct ast_channel *ast,
                */
                bcm_assert(BCMPH_ST_ON_PRE_RINGING == pvt->ast_channel.state);
 
-               ast_localtime(&(utc_time), &(tm), NULL);
-
-               memset(&(cid), 0, sizeof(cid));
-               snprintf(cid.month, sizeof(cid.month), "%02d", (int)(tm.tm_mon + 1));
-               snprintf(cid.day, sizeof(cid.day),     "%02d", (int)(tm.tm_mday));
-               snprintf(cid.hour, sizeof(cid.hour),   "%02d", (int)(tm.tm_hour));
-               snprintf(cid.min, sizeof(cid.min),     "%02d", (int)(tm.tm_min));
-               /* the standard format of ast->callerid is:  "name" <number>, but not always complete */
+               cid_name[0] = '\0';
                if ((!bcmph_ast_channel_connected(ast)->id.name.valid)
                    || (ast_strlen_zero(bcmph_ast_channel_connected(ast)->id.name.str))) {
-                  ast_copy_string(cid.name, DEFAULT_CALLER_ID, sizeof(cid.name));
+                  ast_copy_string(cid_name, DEFAULT_CALLER_ID, sizeof(cid_name));
                }
                else {
-                  ast_copy_string(cid.name, bcmph_ast_channel_connected(ast)->id.name.str, sizeof(cid.name));
+                  ast_copy_string(cid_name, bcmph_ast_channel_connected(ast)->id.name.str, sizeof(cid_name));
                }
 
+               cid_number[0] = '\0';
                if ((bcmph_ast_channel_connected(ast)->id.number.valid)
                    && (!ast_strlen_zero(bcmph_ast_channel_connected(ast)->id.number.str))) {
-                  ast_copy_string(cid.number, bcmph_ast_channel_connected(ast)->id.number.str, sizeof(cid.number));
+                  ast_copy_string(cid_number, bcmph_ast_channel_connected(ast)->id.number.str, sizeof(cid_number));
                }
 
-               bcm_pr_debug("Ringing '%s' on '%s' (with CID '%s', '%s')\n",
-                  addr, bcmph_ast_channel_name(ast), cid.number, cid.name);
-
-               /* TODO : handle CID when driver allows it */
-
-               /*
-                Here it's important to handle the return code of bcmph_set_line_mode()
-                because if the user can't hear the phone ringing, there's a very
-                very little chance that he hooks off the phone
-               */
-               if (bcmph_set_line_mode(pvt, BCMPH_MODE_ON_RINGING, BCMPH_TONE_NONE, -1)) {
+               if (!bcmph_set_new_state_on_ringing(pvt, addr, cid_name, cid_number)) {
                   break;
                }
 
                ast_setstate(ast, AST_STATE_RINGING);
                ast_queue_control(ast, AST_CONTROL_RINGING);
-               bcmph_set_new_state(pvt, BCMPH_ST_ON_RINGING, BCMPH_EV_AST_CALL);
                ret = 0;
             }
          }
@@ -3010,7 +3945,7 @@ static int bcmph_chan_answer(struct ast_channel *ast)
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
    /* Remote end has answered the call */
-   bcm_pr_debug("bcmph_chan_answer(ast='%s')\n", bcmph_ast_channel_name(ast));
+   bcm_pr_debug("%s(ast='%s')\n", __func__, bcmph_ast_channel_name(ast));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -3049,7 +3984,8 @@ static int bcmph_chan_fixup(struct ast_channel *old, struct ast_channel *new)
 {
    bcmph_pvt_t *pvt = bcmph_get_pvt(old);
 
-   bcm_pr_debug("bcmph_chan_fixup(old='%s', new='%s')\n", bcmph_ast_channel_name(old), bcmph_ast_channel_name(new));
+   bcm_pr_debug("%s(old='%s', new='%s')\n", __func__,
+      bcmph_ast_channel_name(old), bcmph_ast_channel_name(new));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -3080,7 +4016,8 @@ static int bcmph_chan_fixup(struct ast_channel *old, struct ast_channel *new)
  */
 static int bcmph_chan_digit_begin(struct ast_channel *ast, char digit)
 {
-   bcm_pr_debug("bcmph_chan_digit_begin(ast='%s', digit='%c')\n", bcmph_ast_channel_name(ast), (char)(digit));
+   bcm_pr_debug("%s(ast='%s', digit='%c')\n", __func__,
+      bcmph_ast_channel_name(ast), (char)(digit));
 
    /* Done in bcmph_chan_digit_end() */
 
@@ -3098,7 +4035,7 @@ static int bcmph_chan_digit_end(struct ast_channel *ast, char digit, unsigned in
    bcmph_pvt_t *pvt;
    bcm_phone_line_tone_t tone;
 
-   bcm_pr_debug("bcmph_chan_digit_end(ast='%s', digit='%c', duration=%u)\n",
+   bcm_pr_debug("%s(ast='%s', digit='%c', duration=%u)\n", __func__,
       bcmph_ast_channel_name(ast), (char)(digit), (unsigned int)(duration));
 
    ast_channel_lock(ast);
@@ -3218,7 +4155,8 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
    int ret = -1;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_indicate(ast='%s', condition=%d)\n", bcmph_ast_channel_name(ast), (int)(condition));
+   bcm_pr_debug("%s(ast='%s', condition=%d)\n", __func__,
+      bcmph_ast_channel_name(ast), (int)(condition));
 
    if (NULL != pvt) {
 #ifdef BCMPH_DEBUG
@@ -3232,19 +4170,29 @@ static int bcmph_chan_indicate(struct ast_channel *ast, int condition, const voi
       else {
          switch (condition) {
             case -1: {
-               bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_NONE), 1);
+               bcmph_unset_tone_generator(pvt);
                ret = 0;
                break;
             }
-            case AST_CONTROL_CONGESTION:
+            case AST_CONTROL_CONGESTION: {
+               if (NULL == bcmph_ast_channel_zone(ast)) {
+                  bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_INVALID), 0);
+                  ret = 0;
+               }
+               break;
+            }
             case AST_CONTROL_BUSY: {
-               bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_BUSY), 0);
-               ret = 0;
+               if (NULL == bcmph_ast_channel_zone(ast)) {
+                  bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_BUSY), 0);
+                  ret = 0;
+               }
                break;
             }
             case AST_CONTROL_RINGING: {
-               bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_RINGBACK), 0);
-               ret = 0;
+               if (NULL == bcmph_ast_channel_zone(ast)) {
+                  bcmph_set_line_tone(pvt, bcm_phone_line_tone_code_index(BCMPH_TONE_RINGBACK), 0);
+                  ret = 0;
+               }
                break;
             }
             case AST_CONTROL_HOLD: {
@@ -3298,7 +4246,7 @@ static struct ast_frame *bcmph_chan_read(struct ast_channel *ast)
    struct ast_frame *ret = &(ast_null_frame);
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   /* bcm_pr_debug("bcmph_chan_read(ast='%s')\n", bcmph_ast_channel_name(ast)); */
+   /* bcm_pr_debug("%s(ast='%s')\n", __func__, bcmph_ast_channel_name(ast)); */
 
    if (NULL != pvt) {
       bool do_unlock = false;
@@ -3350,7 +4298,7 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
    int ret = 0;
    bcmph_pvt_t *pvt = bcmph_get_pvt(ast);
 
-   /* bcm_pr_debug("bcmph_chan_write(ast='%s')\n", bcmph_ast_channel_name(ast)); */
+   /* bcm_pr_debug("%s(ast='%s')\n", __func__, bcmph_ast_channel_name(ast)); */
 
    if (NULL != pvt) {
       bool do_unlock = false;
@@ -3395,11 +4343,11 @@ static int bcmph_chan_write(struct ast_channel *ast, struct ast_frame *frame)
 #ifdef BCMPH_DEBUG
             /*
             if (BCMPH_ST_OFF_WAITING_ANSWER == pvt->ast_channel.state) {
-               bcm_pr_debug("bcmph_chan_write() : changing codec and switching to mode off talking, before call is answered\n");
+               bcm_pr_debug("%s() : changing codec and switching to mode off talking, before call is answered\n", __func__);
             }
             */
 #endif /* BCMPH_DEBUG */
-            if (bcmph_set_line_codec(pvt, format, BCMPH_MODE_OFF_TALKING, BCMPH_TONE_UNSPECIFIED)) {
+            if (bcmph_set_line_codec(pvt, format, BCMPH_MODE_OFF_TALKING, 1, pvt->line_cfg->reverse_polarity, BCMPH_TONE_UNSPECIFIED)) {
                ret = -1;
                break;
             }
@@ -3539,7 +4487,7 @@ static int bcmph_chan_hangup(struct ast_channel *ast)
 {
    bcmph_pvt_t *pvt = bcmph_ast_channel_tech_pvt(ast);
 
-   bcm_pr_debug("bcmph_chan_hangup(ast='%s')\n", bcmph_ast_channel_name(ast));
+   bcm_pr_debug("%s(ast='%s')\n", __func__, bcmph_ast_channel_name(ast));
 
    if ((NULL == pvt) || (pvt->owner != ast)) {
       ast_log(AST_LOG_DEBUG, "Channel '%s' unlink or link to another line\n", bcmph_ast_channel_name(ast));
@@ -3669,7 +4617,7 @@ static struct ast_channel *bcmph_chan_request(const char *type,
    const char *addr = _addr;
 #endif /* (AST_VERSION < 110) */
 
-   bcm_pr_debug("bcmph_chan_request(type='%s', addr='%s')\n", type, addr);
+   bcm_pr_debug("%s(type='%s', addr='%s')\n", __func__, type, addr);
 
    if (ast_strlen_zero(addr)) {
       ast_log(AST_LOG_WARNING, "Unable to create channel with empty destination.\n");
@@ -3777,9 +4725,6 @@ static char *bcmph_cli_set(struct ast_cli_entry *e, int cmd, struct ast_cli_args
       }
       else if (!strcasecmp(f, "off")) {
          set_line_state.status = BCMPH_STATUS_OFF_HOOK;
-      }
-      else if (!strcasecmp(f, "disc")) {
-         set_line_state.status = BCMPH_STATUS_DISCONNECTED;
       }
       else {
          ast_cli(a->fd, "Invalid status '%s'\n", f);
@@ -3908,7 +4853,7 @@ static void bcmph_hangup_all_lines(bcmph_chan_t *t, bool monitor_is_really_stopp
 {
    bcmph_pvt_t *pvt;
    /* We hangup all lines if they have an owner */
-   bcm_pr_debug("Hanging up all the lines\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(!t->monitor.run);
    bcmph_monitor_lock(t);
    AST_LIST_TRAVERSE(&(t->pvt_list), pvt, list) {
@@ -3928,7 +4873,8 @@ static void bcmph_hangup_all_lines(bcmph_chan_t *t, bool monitor_is_really_stopp
 #endif /* BCMPH_DEBUG */
          bcmph_queue_hangup(pvt, BCMPH_EV_AST_HANGUP);
          /* ast_channel_unlock(ast) is done in bcmph_queue_hangup() */
-         bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count));
+         bcm_assert((NULL == pvt->owner) && (0 == pvt->owner_lock_count) &&
+            ((BCMPH_ST_OFF_NO_SERVICE == pvt->ast_channel.state) || (BCMPH_ST_ON_IDLE == pvt->ast_channel.state)));
       }
    }
    bcmph_monitor_unlock(t);
@@ -3939,7 +4885,7 @@ static int __unload_module(void)
    int ret = 0;
    bcmph_chan_t *t = &(bcmph_chan);
    bcmph_pvt_t *p;
-   size_t i;
+   size_t line_idx;
 #ifdef BCMPH_NOHW
    bool unregister_cli = t->channel_registered;
 #endif
@@ -3986,6 +4932,7 @@ static int __unload_module(void)
       while (NULL != p) {
          bcmph_pvt_t *pl = p;
          p = AST_LIST_NEXT(p, list);
+         bcmph_unset_sound_generator(pl);
          bcm_phone_line_state_deinit(&(pl->monitor.line_state));
          if (NULL != pl->ast_channel.current_format) {
             bcmph_ao2_ref_format(pl->ast_channel.current_format, -1);
@@ -3999,11 +4946,11 @@ static int __unload_module(void)
       }
 
       /* We free structures allocated for the configuration */
-      for (i = 0; (i < ARRAY_LEN(t->config.line_cfgs)); i += 1) {
+      for (line_idx = 0; (line_idx < ARRAY_LEN(t->config.line_cfgs)); line_idx += 1) {
 #if (AST_VERSION >= 110)
-         if (NULL != t->config.line_cfgs[i].capabilities) {
-            bcmph_ast_format_cap_destroy(t->config.line_cfgs[i].capabilities);
-            t->config.line_cfgs[i].capabilities = NULL;
+         if (NULL != t->config.line_cfgs[line_idx].capabilities) {
+            bcmph_ast_format_cap_destroy(t->config.line_cfgs[line_idx].capabilities);
+            t->config.line_cfgs[line_idx].capabilities = NULL;
          }
 #endif /* (AST_VERSION >= 110) */
       }
@@ -4014,6 +4961,12 @@ static int __unload_module(void)
          t->chan_tech.capabilities = NULL;
       }
 #endif /* (AST_VERSION >= 110) */
+
+      t->config.ring.cadence = NULL;
+      t->config.ring.cadence_len = 0;
+      if (NULL != t->config.tone_zone) {
+         t->config.tone_zone = ast_tone_zone_unref(t->config.tone_zone);
+      }
 
       ast_mutex_destroy(&(t->monitor.lock));
       ast_mutex_destroy(&(t->mmap.lock));
@@ -4038,7 +4991,7 @@ static bcmph_pvt_t *bcmph_add_pvt(bcmph_chan_t *t, size_t index_line)
 
    bcmph_monitor_lock(t);
    do { /* Empty loop */
-      tmp = ast_calloc(1, sizeof(*tmp));
+      tmp = ast_malloc(sizeof(*tmp));
       if (NULL == tmp) {
          ast_log(AST_LOG_ERROR, "Unable to allocate memory for line\n");
          break;
@@ -4055,9 +5008,9 @@ static bcmph_pvt_t *bcmph_add_pvt(bcmph_chan_t *t, size_t index_line)
 #endif /* BCMPH_DEBUG */
       bcm_phone_line_state_init(&(tmp->monitor.line_state));
       bcmph_reset_pvt_monitor_state(tmp);
-      tmp->ast_channel.current_status = BCMPH_STATUS_DISCONNECTED;
-      tmp->ast_channel.current_mode = BCMPH_MODE_IDLE;
-      tmp->ast_channel.current_tone = BCMPH_TONE_NONE;
+      tmp->ast_channel.current_status = tmp->monitor.line_state.status;
+      tmp->ast_channel.current_mode = tmp->monitor.line_state.mode;
+      tmp->ast_channel.current_tone = tmp->monitor.line_state.tone;
       if ((tmp->line_cfg->detect_dtmf)) {
          tmp->ast_channel.dsp = ast_dsp_new();
          if (NULL != tmp->ast_channel.dsp) {
@@ -4071,7 +5024,11 @@ static bcmph_pvt_t *bcmph_add_pvt(bcmph_chan_t *t, size_t index_line)
             break;
          }
       }
+      tmp->ast_channel.sound_generator.worker = NULL;
+      tmp->ast_channel.sound_generator.post_process_fn = NULL;
+      tmp->ast_channel.sound_generator.format = NULL;
       tmp->ast_channel.state = BCMPH_ST_DISCONNECTED;
+      tmp->ast_channel.ring_stage = 0;
       /*
        Here it does not matter if line handles AST_FORMAT_ULAW or not, because
        the following fields are initialized in bcmph_open_device()
@@ -4079,7 +5036,13 @@ static bcmph_pvt_t *bcmph_add_pvt(bcmph_chan_t *t, size_t index_line)
       tmp->ast_channel.current_format = ast_format_ulaw;
       bcmph_ao2_ref_format(tmp->ast_channel.current_format, 1);
       tmp->ast_channel.bytes_per_sample = 1;
-      tmp->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
+      if (tmp->ast_channel.bytes_per_sample < 2) {
+         bcm_assert(1 == tmp->ast_channel.bytes_per_sample);
+         tmp->ast_channel.frame_size_read = (BCMPH_MAX_BUF / 2);
+      }
+      else {
+         tmp->ast_channel.frame_size_read = BCMPH_MAX_BUF;
+      }
       tmp->ast_channel.bytes_not_written_len = 0;
       AST_LIST_INSERT_TAIL(&(t->pvt_list), tmp, list);
    } while (false);
@@ -4093,12 +5056,23 @@ static int load_module(void)
    int ret = AST_MODULE_LOAD_SUCCESS;
    bcmph_chan_t *t = &(bcmph_chan);
    struct ast_config *cfg = CONFIG_STATUS_FILEINVALID;
-   size_t i;
+   size_t line_idx;
 
-   bcmph_init_cache_ast_format();
+   bcmph_init_supported_codecs();
+
+   bcmph_init_tones();
 
    memset(&(t->config), 0, sizeof(t->config));
    t->config.line_count = 0;
+   t->config.country = 0;
+   t->config.language = NULL;
+   t->config.zone[0] = '\0';
+   t->config.ring.cadence = bcmph_default_ring_cadence;
+   t->config.ring.cadence_len = ARRAY_SIZE(bcmph_default_ring_cadence);
+   t->config.tone_zone = NULL;
+   bcmph_dual_tone_sequence_init(&(t->config.tone_dial), BCMPH_SAMPLE_RATE, NULL, 0, -1);
+   bcmph_dual_tone_sequence_init(&(t->config.tone_busy), BCMPH_SAMPLE_RATE, NULL, 0, -1);
+   bcmph_dual_tone_sequence_init(&(t->config.tone_congestion), BCMPH_SAMPLE_RATE, NULL, 0, -1);
    t->channel_registered = false;
    t->pvt_list.first = NULL;
    t->pvt_list.last = NULL;
@@ -4114,14 +5088,13 @@ static int load_module(void)
 #ifdef BCMPH_DEBUG
    t->monitor.lock_count = 0;
 #endif /* BCMPH_DEBUG */
-   t->monitor.line_off_hook_count = 0;
 #if (AST_VERSION < 110)
    t->chan_tech.capabilities = 0;
 #else /* (AST_VERSION >= 110) */
    t->chan_tech.capabilities = NULL;
 #endif /* (AST_VERSION >= 110)*/
-   for (i = 0; (i < ARRAY_LEN(t->config.line_cfgs)); i += 1) {
-      bcmph_line_config_t *line_cfg = &(t->config.line_cfgs[i]);
+   for (line_idx = 0; (line_idx < ARRAY_LEN(t->config.line_cfgs)); line_idx += 1) {
+      bcmph_line_config_t *line_cfg = &(t->config.line_cfgs[line_idx]);
       line_cfg->enable = false;
 #if (AST_VERSION < 110)
       line_cfg->capabilities = 0;
@@ -4134,10 +5107,14 @@ static int load_module(void)
       line_cfg->dialing_timeout_1st_digit = 5000;
       line_cfg->dialing_timeout = 3000;
       line_cfg->detect_dtmf = 0;
-      sprintf(line_cfg->context, "bcmph-line-%d", (int)(i + 1));
-      sprintf(line_cfg->cid_name, "line%d", (int)(i + 1));
-      sprintf(line_cfg->cid_num, "00-00-00-%02d", (int)(i + 1));
+      sprintf(line_cfg->context, "bcmph-line-%d", (int)(line_idx + 1));
+      sprintf(line_cfg->cid_name, "line%d", (int)(line_idx + 1));
+      sprintf(line_cfg->cid_num, "00-00-00-%02d", (int)(line_idx + 1));
       ast_copy_string(line_cfg->moh_interpret, "default", ARRAY_LEN(line_cfg->moh_interpret));
+      line_cfg->cid_signalling = BCMPH_NO_CID;
+      line_cfg->cid_start = BCMPH_CID_START_RING;
+      line_cfg->reverse_polarity = 0;
+      line_cfg->echo_cancel_tap_length = 0;
    }
 
    do { /* Empty loop */
@@ -4179,8 +5156,8 @@ static int load_module(void)
          if (!strcasecmp(v->name, "lines")) {
             int tmp;
             if ((1 != sscanf(v->value, " %10d ", &(tmp))) || (tmp <= 0) || (((size_t)(tmp)) > ARRAY_LEN(t->config.line_cfgs))) {
-               ast_log(AST_LOG_ERROR, "Invalid value for variable 'lines' in section 'interfaces' of config file '%s'\n",
-                  bcmph_cfg_file);
+               ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section 'interfaces' of config file '%s'\n",
+                  v->value, v->name, bcmph_cfg_file);
                ret = AST_MODULE_LOAD_DECLINE;
                break;
             }
@@ -4189,159 +5166,38 @@ static int load_module(void)
          else if (!strcasecmp(v->name, "country")) {
             char country[64];
             char *f;
+            size_t country_idx;
 
             ast_copy_string(country, v->value, ARRAY_LEN(country));
             f = ast_strip(country);
-            if (!strcasecmp(f, "etsi")) {
-               t->config.language = "en_GB";
-               t->config.country = BCMPH_COUNTRY_ETSI;
+
+            for (country_idx = 0; (country_idx < ARRAY_SIZE(bcmph_countries)); country_idx += 1) {
+               if (!strcasecmp(f, bcmph_countries[country_idx].name)) {
+                  t->config.language = bcmph_countries[country_idx].language;
+                  if ((NULL != bcmph_countries[country_idx].default_zone)
+                      && ('\0' == t->config.zone[0])) {
+                     ast_copy_string(t->config.zone,
+                        bcmph_countries[country_idx].default_zone,
+                        ARRAY_LEN(t->config.zone));
+                  }
+                  t->config.country = bcmph_countries[country_idx].country;
+                  break;
+               }
             }
-            else if (!strcasecmp(f, "gr57")) {
-               t->config.language = "en_GB";
-               t->config.country = BCMPH_COUNTRY_GR57;
-            }
-            else if (!strcasecmp(f, "australia")) {
-               t->config.language = "en_AU";
-               t->config.country = BCMPH_COUNTRY_AU;
-            }
-            else if (!strcasecmp(f, "austria")) {
-               t->config.language = "de_AT";
-               t->config.country = BCMPH_COUNTRY_AT;
-            }
-            else if (!strcasecmp(f, "belgium")) {
-               t->config.language = "fr_BE";
-               t->config.country = BCMPH_COUNTRY_BE;
-            }
-            else if (!strcasecmp(f, "brazil")) {
-               t->config.language = "pt_BR";
-               t->config.country = BCMPH_COUNTRY_BR;
-            }
-            else if (!strcasecmp(f, "bulgaria")) {
-               t->config.language = "bg_BG";
-               t->config.country = BCMPH_COUNTRY_BG;
-            }
-            else if (!strcasecmp(f, "canada")) {
-               t->config.language = "en_CA";
-               t->config.country = BCMPH_COUNTRY_CA;
-            }
-            else if (!strcasecmp(f, "china")) {
-               t->config.language = "zh_CN";
-               t->config.country = BCMPH_COUNTRY_CN;
-            }
-            else if (!strcasecmp(f, "denmark")) {
-               t->config.language = "da_DK";
-               t->config.country = BCMPH_COUNTRY_DK;
-            }
-            else if (!strcasecmp(f, "finland")) {
-               t->config.language = "fi_FI";
-               t->config.country = BCMPH_COUNTRY_FI;
-            }
-            else if (!strcasecmp(f, "france")) {
-               t->config.language = "fr_FR";
-               t->config.country = BCMPH_COUNTRY_FR;
-            }
-            else if (!strcasecmp(f, "germany")) {
-               t->config.language = "de_DE";
-               t->config.country = BCMPH_COUNTRY_DE;
-            }
-            else if (!strcasecmp(f, "great_britain")) {
-               t->config.language = "en_GB";
-               t->config.country = BCMPH_COUNTRY_GB;
-            }
-            else if (!strcasecmp(f, "greece")) {
-               t->config.language = "el_GR";
-               t->config.country = BCMPH_COUNTRY_GR;
-            }
-            else if (!strcasecmp(f, "honk_kong")) {
-               t->config.language = "zh_HK";
-               t->config.country = BCMPH_COUNTRY_HK;
-            }
-            else if (!strcasecmp(f, "hungary")) {
-               t->config.language = "hu_HU";
-               t->config.country = BCMPH_COUNTRY_HU;
-            }
-            else if (!strcasecmp(f, "iceland")) {
-               t->config.language = "is_IS";
-               t->config.country = BCMPH_COUNTRY_IS;
-            }
-            else if (!strcasecmp(f, "ireland")) {
-               t->config.language = "en_IE";
-               t->config.country = BCMPH_COUNTRY_IE;
-            }
-            else if (!strcasecmp(f, "israel")) {
-               t->config.language = "he_IL";
-               t->config.country = BCMPH_COUNTRY_IL;
-            }
-            else if (!strcasecmp(f, "italy")) {
-               t->config.language = "it_IT";
-               t->config.country = BCMPH_COUNTRY_IT;
-            }
-            else if (!strcasecmp(f, "japan")) {
-               t->config.language = "ja_JP";
-               t->config.country = BCMPH_COUNTRY_JP;
-            }
-            else if (!strcasecmp(f, "korea")) {
-               t->config.language = "ko_KR";
-               t->config.country = BCMPH_COUNTRY_KR;
-            }
-            else if (!strcasecmp(f, "netherlands")) {
-               t->config.language = "nl_NL";
-               t->config.country = BCMPH_COUNTRY_NL;
-            }
-            else if (!strcasecmp(f, "new_zealand")) {
-               t->config.language = "en_NZ";
-               t->config.country = BCMPH_COUNTRY_NZ;
-            }
-            else if (!strcasecmp(f, "norway")) {
-               t->config.language = "no_NO";
-               t->config.country = BCMPH_COUNTRY_NO;
-            }
-            else if (!strcasecmp(f, "portugal")) {
-               t->config.language = "pt_PT";
-               t->config.country = BCMPH_COUNTRY_PT;
-            }
-            else if (!strcasecmp(f, "russia")) {
-               t->config.language = "ru_RU";
-               t->config.country = BCMPH_COUNTRY_RU;
-            }
-            else if (!strcasecmp(f, "singapore")) {
-               t->config.language = "en_SG";
-               t->config.country = BCMPH_COUNTRY_SG;
-            }
-            else if (!strcasecmp(f, "south_africa")) {
-               t->config.language = "en_ZA";
-               t->config.country = BCMPH_COUNTRY_ZA;
-            }
-            else if (!strcasecmp(f, "spain")) {
-               t->config.language = "es_ES";
-               t->config.country = BCMPH_COUNTRY_ES;
-            }
-            else if (!strcasecmp(f, "sweden")) {
-               t->config.language = "sv_SE";
-               t->config.country = BCMPH_COUNTRY_SE;
-            }
-            else if (!strcasecmp(f, "switzerland")) {
-               t->config.language = "de_CH";
-               t->config.country = BCMPH_COUNTRY_CH;
-            }
-            else if (!strcasecmp(f, "taiwan")) {
-               t->config.language = "zh_TW";
-               t->config.country = BCMPH_COUNTRY_TW;
-            }
-            else if (!strcasecmp(f, "turkey")) {
-               t->config.language = "tr_TR";
-               t->config.country = BCMPH_COUNTRY_TK;
-            }
-            else if (!strcasecmp(f, "united_states")) {
-               t->config.language = "en_US";
-               t->config.country = BCMPH_COUNTRY_US;
-            }
-            else {
-               ast_log(AST_LOG_ERROR, "Invalid value for variable 'country' in section 'interfaces' of config file '%s'\n",
-                  bcmph_cfg_file);
+            if (country_idx >= ARRAY_SIZE(bcmph_countries)) {
+               ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section 'interfaces' of config file '%s'\n",
+                  f, v->name, bcmph_cfg_file);
                ret = AST_MODULE_LOAD_DECLINE;
                break;
             }
+         }
+         else if (!strcasecmp(v->name, "zone")) {
+            char zone[64];
+            char *f;
+
+            ast_copy_string(zone, v->value, ARRAY_LEN(zone));
+            f = ast_strip(zone);
+            ast_copy_string(t->config.zone, f, ARRAY_LEN(t->config.zone));
          }
          else {
             ast_log(AST_LOG_WARNING, "Unknown variable '%s' in section 'interfaces' of config_file '%s'\n",
@@ -4358,11 +5214,11 @@ static int load_module(void)
        transfers
       */
       max_bytes_per_sample = 1;
-      for (i = 0; (i < t->config.line_count); i += 1) {
+      for (line_idx = 0; (line_idx < t->config.line_count); line_idx += 1) {
          char section[64];
-         bcmph_line_config_t *line_cfg = &(t->config.line_cfgs[i]);
+         bcmph_line_config_t *line_cfg = &(t->config.line_cfgs[line_idx]);
 
-         snprintf(section, ARRAY_LEN(section), "line%d", (int)(i + 1));
+         snprintf(section, ARRAY_LEN(section), "line%d", (int)(line_idx + 1));
          for (v = ast_variable_browse(cfg, section); (NULL != v); v = v->next) {
             if (!strcasecmp(v->name, "enable")) {
                if (ast_true(v->value)) {
@@ -4380,57 +5236,39 @@ static int load_module(void)
                char *f;
                char *save_ptr = NULL;
 
-#if (AST_VERSION >= 110)
-               if (NULL == line_cfg->capabilities) {
-                  line_cfg->capabilities = bcmph_ast_format_cap_alloc();
-                  if (NULL == line_cfg->capabilities) {
-                     ret = AST_MODULE_LOAD_DECLINE;
-                     break;
-                  }
-                  bcmph_ast_format_cap_remove_by_type(bcmph_get_line_cfg_cap(line_cfg), AST_MEDIA_TYPE_UNKNOWN);
-               }
-#endif /* (AST_VERSION >= 110) */
                ast_copy_string(codecs, v->value, ARRAY_LEN(codecs));
                f = strtok_r(codecs, ",", &(save_ptr));
                while (NULL != f)
                {
                   const char *format_name = ast_strip(f);
-                  if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_ulaw))) {
-                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_ulaw);
-                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_ulaw)) {
-                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_ulaw);
+                  size_t codec_idx;
+                  for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+                     if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(bcmph_supported_codecs[codec_idx].ast_format))) {
+#if (AST_VERSION >= 110)
+                        if (NULL == line_cfg->capabilities) {
+                           line_cfg->capabilities = bcmph_ast_format_cap_alloc();
+                           if (NULL == line_cfg->capabilities) {
+                              break;
+                           }
+                           bcmph_ast_format_cap_remove_by_type(bcmph_get_line_cfg_cap(line_cfg), AST_MEDIA_TYPE_UNKNOWN);
+                        }
+#endif /* (AST_VERSION >= 110) */
+                        bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), bcmph_supported_codecs[codec_idx].ast_format);
+                        break;
                      }
                   }
-                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_alaw))) {
-                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_alaw);
-                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_alaw)) {
-                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_alaw);
-                     }
-                  }
-                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_slin))) {
-                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin);
-                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin)) {
-                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin);
-                     }
-                     if (max_bytes_per_sample < 2) {
-                        max_bytes_per_sample = 2;
-                     }
-                  }
-                  else if (0 == strcasecmp(format_name, bcmph_ast_format_get_name(ast_format_slin16))) {
-                     bcmph_ast_format_cap_append_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin16);
-                     if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin16)) {
-                        bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), ast_format_slin16);
-                     }
-                     if (max_bytes_per_sample < 4) {
-                        max_bytes_per_sample = 4;
-                     }
-                  }
-                  else {
-                     ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable 'codecs' in section '%s' of config file '%s'\n",
-                        f, section, bcmph_cfg_file);
+                  if (codec_idx >= ARRAY_SIZE(bcmph_supported_codecs)) {
+                     ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                        v->value, v->name, section, bcmph_cfg_file);
                      ret = AST_MODULE_LOAD_DECLINE;
                      break;
                   }
+#if (AST_VERSION >= 110)
+                  if (NULL == line_cfg->capabilities) {
+                     ret = AST_MODULE_LOAD_DECLINE;
+                     break;
+                  }
+#endif /* (AST_VERSION >= 110) */
                   f = strtok_r(NULL, ",", &(save_ptr));
                }
                if (AST_MODULE_LOAD_SUCCESS != ret) {
@@ -4458,8 +5296,8 @@ static int load_module(void)
                   line_cfg->search_extension_trigger = f[0];
                }
                else {
-                  ast_log(AST_LOG_ERROR, "Invalid value for variable 'search_extension_trigger' in section '%s' of config file '%s'\n",
-                     section, bcmph_cfg_file);
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     f, v->name, section, bcmph_cfg_file);
                   ret = AST_MODULE_LOAD_DECLINE;
                   break;
                }
@@ -4467,8 +5305,8 @@ static int load_module(void)
             else if (!strcasecmp(v->name, "dialing_timeout_1st_digit")) {
                int tmp;
                if ((1 != sscanf(v->value, " %10d ", &(tmp))) || (tmp < 0)) {
-                  ast_log(AST_LOG_ERROR, "Invalid value for variable 'dialing_timeout_1st_digit' in section '%s' of config file '%s'\n",
-                     section, bcmph_cfg_file);
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     v->value, v->name, section, bcmph_cfg_file);
                   ret = AST_MODULE_LOAD_DECLINE;
                   break;
                }
@@ -4477,8 +5315,8 @@ static int load_module(void)
             else if (!strcasecmp(v->name, "dialing_timeout")) {
                int tmp;
                if ((1 != sscanf(v->value, " %10d ", &(tmp))) || (tmp < 0)) {
-                  ast_log(AST_LOG_ERROR, "Invalid value for variable 'dialing_timeout' in section '%s' of config file '%s'\n",
-                     section, bcmph_cfg_file);
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     v->value, v->name, section, bcmph_cfg_file);
                   ret = AST_MODULE_LOAD_DECLINE;
                   break;
                }
@@ -4511,8 +5349,8 @@ static int load_module(void)
                      /* Ignored, for compatibility */
                   }
                   else {
-                     ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable 'detect_dtmf' in section '%s' of config file '%s'\n",
-                        v->value, section, bcmph_cfg_file);
+                     ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                        v->value, v->name, section, bcmph_cfg_file);
                      ret = AST_MODULE_LOAD_DECLINE;
                      break;
                   }
@@ -4530,6 +5368,74 @@ static int load_module(void)
             else if (!strcasecmp(v->name, "moh_interpret")) {
                ast_copy_string(line_cfg->moh_interpret, v->value, ARRAY_LEN(line_cfg->moh_interpret));
             }
+            else if (!strcasecmp(v->name, "cid_signalling")) {
+               char cid_signalling[64];
+               char *f;
+
+               ast_copy_string(cid_signalling, v->value, ARRAY_LEN(cid_signalling));
+               f = ast_strip(cid_signalling);
+               if (!strcasecmp(f, "none")) {
+                  line_cfg->cid_signalling = BCMPH_NO_CID;
+               }
+               else if (!strcasecmp(f, "bell")) {
+                  line_cfg->cid_signalling = BCMPH_CID_SIG_BELL;
+               }
+               else if (!strcasecmp(f, "v23")) {
+                  line_cfg->cid_signalling = BCMPH_CID_SIG_V23;
+               }
+               else if (!strcasecmp(f, "dtmf")) {
+                  line_cfg->cid_signalling = BCMPH_CID_SIG_DTMF;
+               }
+               else {
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     f, v->name, section, bcmph_cfg_file);
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+            }
+            else if (!strcasecmp(v->name, "cid_start")) {
+               char cid_start[64];
+               char *f;
+
+               ast_copy_string(cid_start, v->value, ARRAY_LEN(cid_start));
+               f = ast_strip(cid_start);
+               if (!strcasecmp(f, "ring")) {
+                  line_cfg->cid_start = BCMPH_CID_START_RING;
+               }
+               else if (!strcasecmp(f, "ring_pulse")) {
+                  line_cfg->cid_start = BCMPH_CID_START_RING_PULSE;
+               }
+               else if (!strcasecmp(f, "polarity")) {
+                  line_cfg->cid_start = BCMPH_CID_START_POLARITY;
+               }
+               else if (!strcasecmp(f, "dtmf")) {
+                  line_cfg->cid_start = BCMPH_CID_START_DTMF;
+               }
+               else if (!strcasecmp(f, "polarity_and_dtmf")) {
+                  line_cfg->cid_start = BCMPH_CID_START_POLARITY_DTMF;
+               }
+               else {
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     f, v->name, section, bcmph_cfg_file);
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+            }
+            else if (!strcasecmp(v->name, "echo_cancel_tap_length")) {
+               int tmp;
+               if ((1 != sscanf(v->value, " %10d ", &(tmp)))
+                   || (tmp < 0)
+                   || ((0 != tmp) && (32 != tmp)
+                       && (64 != tmp) && (128 != tmp)
+                       && (256 != tmp) && (512 != tmp)
+                       && (1024 != tmp))) {
+                  ast_log(AST_LOG_ERROR, "Invalid value '%s' for variable '%s' in section '%s' of config file '%s'\n",
+                     v->value, v->name, section, bcmph_cfg_file);
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+               line_cfg->echo_cancel_tap_length = tmp;
+            }
             else {
                ast_log(AST_LOG_WARNING, "Unknown variable '%s' in section '%s' of config file '%s'\n",
                   v->name, section, bcmph_cfg_file);
@@ -4539,16 +5445,36 @@ static int load_module(void)
             break;
          }
          if (line_cfg->enable) {
+            size_t codec_idx;
 #if (AST_VERSION < 110)
             if (0 == line_cfg->capabilities) {
 #else /* (AST_VERSION >= 110) */
             if (NULL == line_cfg->capabilities) {
 #endif /* (AST_VERSION >= 110)*/
                ast_log(AST_LOG_ERROR, "No codec specified for line %lu in config file '%s'\n",
-                  (unsigned long)(i + 1), bcmph_cfg_file);
+                  (unsigned long)(line_idx + 1), bcmph_cfg_file);
                ret = AST_MODULE_LOAD_DECLINE;
                break;
             }
+
+            if (line_cfg->echo_cancel_tap_length > 0) {
+               if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin)) {
+                  ast_log(AST_LOG_ERROR, "Line %lu does not supports codec slin, so echo cancellation is not possible\n",
+                     (unsigned long)(line_idx + 1));
+                  ret = AST_MODULE_LOAD_DECLINE;
+                  break;
+               }
+               /* Remove codecs not compatible with echo canceller */
+               for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+                  bcmph_ast_format *tmpfmt = bcmph_supported_codecs[codec_idx].ast_format;
+                  if (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_slin)) {
+                     if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), tmpfmt)) {
+                        bcmph_ast_format_cap_remove(bcmph_get_line_cfg_cap(line_cfg), tmpfmt);
+                     }
+                  }
+               }
+            }
+
             if (!line_cfg->monitor_dialing) {
                line_cfg->detect_dtmf &= (~(DETECT_DTMF_WHEN_DIALING));
             }
@@ -4557,67 +5483,72 @@ static int load_module(void)
                    && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_ulaw))
                    && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_alaw))) {
                   ast_log(AST_LOG_ERROR, "Line %lu does not support codec ulaw, alaw or slin, so DTMF detection is not possible\n",
-                     (unsigned long)(i + 1));
+                     (unsigned long)(line_idx + 1));
                   ret = AST_MODULE_LOAD_DECLINE;
                   break;
                }
                if ((line_cfg->detect_dtmf & (DETECT_DTMF_BEFORE_CONNECTION | DETECT_DTMF_WHEN_CONNECTED))) {
                   /*
-                   * We check that line supports only codecs compatible with
-                   * DTMF detection, because if line supports an incompatible
-                   * codec, Asterisk could choose it and it will prevent DTMF
-                   * detection.
-                   */
-#if (AST_VERSION < 110)
-                  unsigned long long mask = 0x1ULL;
-                  while (mask) {
-                     bcmph_ast_format tmp = line_cfg->capabilities & mask;
-                     bcmph_ast_format *tmpfmt;
-                     mask <<= 1;
-                     if (!tmp) {
-                        continue;
-                     }
-                     tmpfmt = &(tmp);
-                     bcmph_ao2_ref_format(tmpfmt, 1);
-#endif /* (AST_VERSION < 110) */
-#if (110 == AST_VERSION)
-                  bcmph_ast_format tmp;
-                  ast_format_cap_iter_start(line_cfg->capabilities);
-                  while (!ast_format_cap_iter_next(bcmph_get_line_cfg_cap(line_cfg), &(tmp))) {
-                     bcmph_ast_format *tmpfmt = &(tmp);
-                     bcmph_ao2_ref_format(tmpfmt, 1);
-#endif /* (110 == AST_VERSION) */
-#if (AST_VERSION > 110)
-                  size_t format_count = ast_format_cap_count(bcmph_get_line_cfg_cap(line_cfg));
-                  size_t j;
-                  for (j = 0; (j < format_count); j += 1) {
-                     bcmph_ast_format *tmpfmt = ast_format_cap_get_format(bcmph_get_line_cfg_cap(line_cfg), j);
-#endif /* (AST_VERSION > 110) */
-                     if ((!bcmph_ast_formats_are_equal(tmpfmt, ast_format_slin))
+                   We check that line supports only codecs compatible
+                   with DTMF detection, because if line supports an
+                   incompatible codec, Asterisk could choose it and it
+                   will prevent DTMF detection.
+                  */
+                  for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+                     const bcmph_ast_format *tmpfmt = bcmph_supported_codecs[codec_idx].ast_format;
+                     if ((bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), tmpfmt))
+                         && (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_slin))
                          && (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_ulaw))
                          && (!bcmph_ast_formats_are_equal(tmpfmt, ast_format_alaw))) {
-                        bcmph_ao2_ref_format(tmpfmt, -1);
-                        ast_log(AST_LOG_ERROR, "Line %lu supports codec '%s', but it's not compatible with DTMF detection\n",
-                           (unsigned long)(i + 1), bcmph_ast_format_get_name(tmpfmt));
-                        ret = AST_MODULE_LOAD_DECLINE;
                         break;
                      }
-                     bcmph_ao2_ref_format(tmpfmt, -1);
                   }
-#if (110 == AST_VERSION)
-                  ast_format_cap_iter_end(line_cfg->capabilities);
-#endif /* (110 == AST_VERSION) */
-                  if (AST_MODULE_LOAD_SUCCESS != ret) {
+                  if (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)) {
+                     ast_log(AST_LOG_ERROR, "Line %lu supports codec '%s', but it's not compatible with DTMF detection\n",
+                        (unsigned long)(line_idx + 1), bcmph_ast_format_get_name(bcmph_supported_codecs[codec_idx].ast_format));
+                     ret = AST_MODULE_LOAD_DECLINE;
                      break;
                   }
                }
             }
+
+            if ((BCMPH_NO_CID != line_cfg->cid_signalling)
+                && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_slin))
+                && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_ulaw))
+                && (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), ast_format_alaw))) {
+               ast_log(AST_LOG_ERROR, "Line %lu does not supports codec ulaw, alaw or slin, so caller ID transmission is not possible\n",
+                  (unsigned long)(line_idx + 1));
+               ret = AST_MODULE_LOAD_DECLINE;
+               break;
+            }
+
+            if ((BCMPH_CID_SIG_DTMF == line_cfg->cid_signalling)
+                && ((BCMPH_CID_START_DTMF == line_cfg->cid_start)
+                    || (BCMPH_CID_START_POLARITY_DTMF == line_cfg->cid_start))) {
+               ast_log(AST_LOG_ERROR, "Line %lu, cid_signalling 'dtmf' can't be used with cid_start 'dtmf' or 'polarity_dtmf'\n",
+                  (unsigned long)(line_idx + 1));
+               ret = AST_MODULE_LOAD_DECLINE;
+               break;
+            }
+
             if (!line_cfg->context[0]) {
                ast_copy_string(line_cfg->context, "default", sizeof(line_cfg->context));
             }
-            if (NULL == bcmph_add_pvt(t, i)) {
+
+            if (NULL == bcmph_add_pvt(t, line_idx)) {
                ret = AST_MODULE_LOAD_DECLINE;
                break;
+            }
+
+            for (codec_idx = 0; (codec_idx < ARRAY_SIZE(bcmph_supported_codecs)); codec_idx += 1) {
+               if (bcmph_ast_format_cap_iscompatible_format(bcmph_get_line_cfg_cap(line_cfg), bcmph_supported_codecs[codec_idx].ast_format)) {
+                  if (max_bytes_per_sample < bcmph_supported_codecs[codec_idx].bytes_per_sample) {
+                     max_bytes_per_sample = bcmph_supported_codecs[codec_idx].bytes_per_sample;
+                  }
+                  if (!bcmph_ast_format_cap_iscompatible_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), bcmph_supported_codecs[codec_idx].ast_format)) {
+                     bcmph_ast_format_cap_append_format(bcmph_get_chan_tech_cap(&(t->chan_tech)), bcmph_supported_codecs[codec_idx].ast_format);
+                  }
+               }
             }
          }
       }
@@ -4628,13 +5559,14 @@ static int load_module(void)
       /*
        When at least one line is in conversation mode, as monitor thread is
        in charge of queuing data received, we set a period equal to the time
-       needed to fill a frame (considering that we receive 8 samples per ms)
+       needed to fill a frame (considering that we receive BCMPH_SAMPLES_PER_MS
+       samples per ms)
       */
       if (max_bytes_per_sample > 2) {
-         t->config.monitor_busy_period = (BCMPH_MAX_BUF / (max_bytes_per_sample * 8));
+         t->config.monitor_busy_period = (BCMPH_MAX_BUF / (max_bytes_per_sample * BCMPH_SAMPLES_PER_MS));
       }
       else {
-         t->config.monitor_busy_period = (BCMPH_MAX_BUF / (2 * 8));
+         t->config.monitor_busy_period = (BCMPH_MAX_BUF / (2 * BCMPH_SAMPLES_PER_MS));
       }
 
       if (AST_LIST_EMPTY(&(t->pvt_list))) {
@@ -4645,6 +5577,50 @@ static int load_module(void)
 
       ast_config_destroy(cfg);
       cfg = CONFIG_STATUS_FILEINVALID;
+
+      t->config.tone_zone = ast_get_indication_zone(t->config.zone);
+      if (NULL == t->config.tone_zone) {
+         t->config.tone_zone = ast_get_indication_zone(NULL);
+      }
+      if (NULL != t->config.tone_zone) {
+         struct ast_tone_zone_sound *tone_sound;
+         t->config.tone_zone = ast_tone_zone_ref(t->config.tone_zone);
+
+         tone_sound = ast_get_indication_tone(t->config.tone_zone, "dial");
+         if (NULL != tone_sound) {
+            bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_dial), BCMPH_SAMPLE_RATE, tone_sound->data);
+         }
+
+         tone_sound = ast_get_indication_tone(t->config.tone_zone, "busy");
+         if (NULL != tone_sound) {
+            bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_busy), BCMPH_SAMPLE_RATE, tone_sound->data);
+         }
+
+         tone_sound = ast_get_indication_tone(t->config.tone_zone, "congestion");
+         if (NULL != tone_sound) {
+            bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_congestion), BCMPH_SAMPLE_RATE, tone_sound->data);
+         }
+
+         t->config.ring.cadence = t->config.tone_zone->ringcadence;
+         /* We force ring.cadence_len to be even */
+         t->config.ring.cadence_len = (t->config.tone_zone->nrringcadence >> 1) << 1;
+      }
+      if (t->config.tone_dial.part_count <= 0) {
+         bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_dial), BCMPH_SAMPLE_RATE, "350+440");
+         bcm_assert(t->config.tone_dial.part_count > 0);
+      }
+      if (t->config.tone_busy.part_count <= 0) {
+         bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_busy), BCMPH_SAMPLE_RATE, "480+620/500,0/500");
+         bcm_assert(t->config.tone_busy.part_count > 0);
+      }
+      if (t->config.tone_congestion.part_count <= 0) {
+         bcmph_dual_tone_sequence_init_from_ast_def(&(t->config.tone_congestion), BCMPH_SAMPLE_RATE, "480+620/250,0/250");
+         bcm_assert(t->config.tone_congestion.part_count > 0);
+      }
+      if ((NULL == t->config.ring.cadence) || (t->config.ring.cadence_len <= 0)) {
+         t->config.ring.cadence = bcmph_default_ring_cadence;
+         t->config.ring.cadence_len = ARRAY_SIZE(bcmph_default_ring_cadence);
+      }
 
       ret = bcmph_open_device(t);
       if (AST_MODULE_LOAD_SUCCESS != ret) {

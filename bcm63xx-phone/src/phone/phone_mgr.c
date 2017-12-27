@@ -5,7 +5,12 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
+
+#include <extern/linux/barrier.h>
+#include <extern/linux/errno.h>
+#include <extern/linux/stddef.h>
 
 #include <phone_mgr.h>
 
@@ -13,9 +18,11 @@ static inline void bcm_phone_mgr_update_from_ls(bcm_phone_mgr_line_t *t)
 {
    t->shared.change_status = NO_CHANGE_ASKED;
    t->shared.new_codec = t->shared.line_state.codec;
+   t->shared.new_rev_polarity = t->shared.line_state.rev_polarity;
    t->shared.new_mode = t->shared.line_state.mode;
    t->shared.new_tone = bcm_phone_line_tone_code_index(t->shared.line_state.tone);
    atomic_set(&(t->shared.current_codec), t->shared.line_state.codec);
+   atomic_set(&(t->shared.current_rev_polarity), t->shared.line_state.rev_polarity);
    atomic_set(&(t->shared.current_mode), t->shared.line_state.mode);
    atomic_set(&(t->shared.current_tone), t->shared.line_state.tone);
 }
@@ -37,8 +44,8 @@ static void bcm_phone_mgr_line_deinit(bcm_phone_mgr_line_t *t)
 static void bcm_phone_mgr_line_reset(bcm_phone_mgr_line_t *t)
 {
    bcm_phone_line_state_reset(&(t->shared.line_state),
-      BCMPH_STATUS_DISCONNECTED, BCMPH_CODEC_LINEAR,
-      BCMPH_MODE_IDLE, BCMPH_TONE_NONE);
+      BCMPH_STATUS_UNSPECIFIED, BCMPH_CODEC_LINEAR, false,
+      BCMPH_MODE_DISCONNECT, BCMPH_TONE_NONE);
    bcm_phone_mgr_update_from_ls(t);
 }
 
@@ -60,17 +67,18 @@ static bool bcm_phone_mgr_mode_allow_tones(bcm_phone_line_mode_t mode)
    return (ret);
 }
 
+#ifdef BCMPH_EXPORT_DEV_FILE
 static int bcm_phone_mgr_wait_for_change_completion(bcm_phone_mgr_t *t,
    const bcm_phone_mgr_line_t *pl, int wq_counter,
    int wait, bcmph_mutex_t *lock)
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_phone_mgr_wait_for_change_completion(wait=%d)\n", (int)(wait));
+   d_bcm_pr_debug("%s(wait=%d)\n", __func__, (int)(wait));
 
    if (wait < 0) {
       for (;;) {
-         ret = bcm_wait_queue_wait_event_counter(&(t->eventq),
+         ret = bcm_wait_queue_wait_event_counter(&(t->dev.eventq),
             wq_counter, lock);
          if (ret < 0) {
             break;
@@ -79,23 +87,23 @@ static int bcm_phone_mgr_wait_for_change_completion(bcm_phone_mgr_t *t,
          // We update the counter before doing the verification
          // so we are sure not to loose an event between the verification
          // and when we start waiting for an event
-         wq_counter = bcm_wait_queue_get_counter(&(t->eventq));
-         spin_lock_bh(&(t->lock));
+         wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+         spin_lock_bh(&(t->dev.lock));
          // When timer is stopped, change_status is reset to NO_CHANGED_ASKED
          // so no need to test timer is active
          if (NO_CHANGE_ASKED == pl->shared.change_status) {
-            spin_unlock_bh(&(t->lock));
+            spin_unlock_bh(&(t->dev.lock));
             ret = 0;
             break;
          }
-         spin_unlock_bh(&(t->lock));
+         spin_unlock_bh(&(t->dev.lock));
       }
    }
    else {
       long timeout_in_jiffies = msecs_to_jiffies(wait);
       ret = 1;
       for (;;) {
-         long remaining = bcm_wait_queue_wait_event_counter_timeout(&(t->eventq),
+         long remaining = bcm_wait_queue_wait_event_counter_timeout(&(t->dev.eventq),
             wq_counter, timeout_in_jiffies, lock);
          if (remaining < 0) {
             ret = remaining;
@@ -105,16 +113,16 @@ static int bcm_phone_mgr_wait_for_change_completion(bcm_phone_mgr_t *t,
          // We update the counter before doing the verification
          // so we are sure not to loose an event between the verification
          // and we wait for an event
-         wq_counter = bcm_wait_queue_get_counter(&(t->eventq));
-         spin_lock_bh(&(t->lock));
+         wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+         spin_lock_bh(&(t->dev.lock));
          // When timer is stopped, change_status is reset to NO_CHANGED_ASKED
          // so no need to test timer is active
          if (NO_CHANGE_ASKED == pl->shared.change_status) {
-            spin_unlock_bh(&(t->lock));
+            spin_unlock_bh(&(t->dev.lock));
             ret = 0;
             break;
          }
-         spin_unlock_bh(&(t->lock));
+         spin_unlock_bh(&(t->dev.lock));
          timeout_in_jiffies = remaining;
          if (timeout_in_jiffies <= 0) {
             break;
@@ -124,6 +132,7 @@ static int bcm_phone_mgr_wait_for_change_completion(bcm_phone_mgr_t *t,
 
    return (ret);
 }
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
 __u8 bcm_phone_mgr_get_first_timeslot_line(const bcm_phone_mgr_t *t, size_t line)
 {
@@ -131,8 +140,7 @@ __u8 bcm_phone_mgr_get_first_timeslot_line(const bcm_phone_mgr_t *t, size_t line
    const phone_device_t *dev;
    const phone_desc_line_t *desc;
 
-   bcm_pr_debug("bcm_phone_mgr_get_first_timeslot_line(line=%lu)\n",
-      (unsigned long)(line));
+   bcm_pr_debug("%s(line=%lu)\n", __func__, (unsigned long)(line));
 
    bcm_assert(line < t->phone_line_count);
 
@@ -147,8 +155,7 @@ bool bcm_phone_mgr_line_supports_codec(const bcm_phone_mgr_t *t, size_t line, bc
 {
    bool ret = false;
 
-   bcm_pr_debug("bcm_phone_mgr_line_supports_codec(line=%lu, codec=%d)\n",
-      (unsigned long)(line), (int)(codec));
+   d_bcm_pr_debug("%s(line=%lu, codec=%d)\n", __func__, (unsigned long)(line), (int)(codec));
 
    bcm_assert(line < t->phone_line_count);
 
@@ -220,7 +227,7 @@ bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t,
 {
    bool ret = false;
 
-   bcm_pr_debug("bcm_phone_mgr_line_can_switch_to_codec(line=%lu, old_codec=%d, new_codec=%d)\n",
+   d_bcm_pr_debug("%s(line=%lu, old_codec=%d, new_codec=%d)\n", __func__,
       (unsigned long)(line), (int)(old_codec), (int)(new_codec));
 
    bcm_assert(line < t->phone_line_count);
@@ -258,15 +265,28 @@ bool bcm_phone_mgr_line_can_switch_to_codec(const bcm_phone_mgr_t *t,
 
 int bcm_phone_mgr_set_line_codec(bcm_phone_mgr_t *t, size_t line,
    bcm_phone_codec_t codec, bcm_phone_line_mode_t mode,
-   __u32 tone, int wait, bcmph_mutex_t *lock)
+   int reverse_polarity, __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   )
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_phone_mgr_set_line_codec(line=%lu, codec=%d, mode=%d, tone=0x%lx, wait=%d)\n",
-      (unsigned long)(line), (int)(codec), (int)(mode), (unsigned long)(tone), (int)(wait));
+   d_bcm_pr_debug("%s(line=%lu, codec=%d, mode=%d, tone=0x%lx"
+#ifdef BCMPH_EXPORT_DEV_FILE
+      ", wait=%d"
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      ")\n", __func__, (unsigned long)(line), (int)(codec), (int)(mode), (unsigned long)(tone)
+#ifdef BCMPH_EXPORT_DEV_FILE
+      , (int)(wait)
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      );
 
+#ifdef BCMPH_EXPORT_DEV_FILE
    bcm_assert(((NULL == lock) && (0 == wait))
       || ((NULL != lock) && (bcmph_mutex_is_locked(lock))));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
    bcm_assert((line < t->phone_line_count)
       && (bcm_phone_mgr_line_supports_codec(t, line, codec))
@@ -274,80 +294,31 @@ int bcm_phone_mgr_set_line_codec(bcm_phone_mgr_t *t, size_t line,
 
    do { // Empty loop
       bcm_phone_mgr_line_t *pl = &(t->phone_lines[line]);
+      bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
+#ifdef BCMPH_EXPORT_DEV_FILE
       // We init the counter before doing the change
       // so we are sure not to loose an event between the change
       // and when we start waiting for an event
-      int wq_counter = bcm_wait_queue_get_counter(&(t->eventq));
+      int wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
-      spin_lock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
       pl->shared.new_codec = codec;
       if (BCMPH_MODE_UNSPECIFIED != mode) {
          if (mode < BCMPH_MAX_MODES) {
             pl->shared.new_mode = mode;
-            if (!bcm_phone_mgr_mode_allow_tones(mode)) {
-               pl->shared.new_tone = bcm_phone_line_tone_code_index(BCMPH_TONE_NONE);
-            }
-            else {
-               bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
-               if (BCMPH_TONE_UNSPECIFIED != tone_index) {
-                  if (tone_index < BCMPH_MAX_TONES) {
-                     pl->shared.new_tone = tone;
-                  }
-                  else {
-                     bcm_pr_debug("Invalid tone %lu\n", (unsigned long)(tone));
-                  }
-               }
-            }
          }
          else {
             bcm_pr_debug("Invalid mode %d\n", (int)(mode));
          }
       }
-      if (wait) {
-         pl->shared.change_status |= CHANGE_ASKED_ASAP;
+      if (reverse_polarity >= 0) {
+         pl->shared.new_rev_polarity = (reverse_polarity ? true : false);
       }
-      else {
-         pl->shared.change_status |= CHANGE_ASKED;
-      }
-      spin_unlock_bh(&(t->lock));
-
-      if (wait) {
-         ret = bcm_phone_mgr_wait_for_change_completion(t, pl, wq_counter, wait, lock);
-      }
-   }
-   while (false);
-
-   return (ret);
-}
-
-int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
-   bcm_phone_line_mode_t mode, __u32 tone,
-   int wait, bcmph_mutex_t *lock)
-{
-   int ret = 0;
-
-   d_bcm_pr_debug("bcm_phone_mgr_set_line_mode(line=%lu, mode=%d, tone=0x%lx, wait=%d)\n",
-      (unsigned long)(line), (int)(mode), (unsigned long)(tone), (int)(wait));
-
-   bcm_assert(((NULL == lock) && (0 == wait))
-      || ((NULL != lock) && (bcmph_mutex_is_locked(lock))));
-
-   bcm_assert((line < t->phone_line_count)
-      && (phone_line_is_enabled(t->phone_lines[line].line))
-      && (mode != BCMPH_MODE_UNSPECIFIED) && (mode < BCMPH_MAX_MODES));
-
-   do { // Empty loop
-      bcm_phone_mgr_line_t *pl = &(t->phone_lines[line]);
-      // We init the counter before doing the change
-      // so we are sure not to loose an event between the change
-      // and when we start waiting for an event
-      int wq_counter = bcm_wait_queue_get_counter(&(t->eventq));
-      bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
-
-      spin_lock_bh(&(t->lock));
-      pl->shared.new_mode = mode;
       if (BCMPH_TONE_UNSPECIFIED != tone_index) {
-         if (!bcm_phone_mgr_mode_allow_tones(mode)) {
+         if (!bcm_phone_mgr_mode_allow_tones(pl->shared.new_mode)) {
             if (BCMPH_TONE_NONE != tone_index) {
                bcm_pr_debug("Mode %d does not allow tone emission. Tone changed to %lu\n",
                   (int)(mode), (unsigned long)(bcm_phone_line_tone_code_index(BCMPH_TONE_NONE)));
@@ -361,17 +332,170 @@ int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
             bcm_pr_debug("Invalid tone %lu\n", (unsigned long)(tone));
          }
       }
+#ifdef BCMPH_EXPORT_DEV_FILE
       if (wait) {
+#endif /* BCMPH_EXPORT_DEV_FILE */
          pl->shared.change_status |= CHANGE_ASKED_ASAP;
+#ifdef BCMPH_EXPORT_DEV_FILE
       }
       else {
          pl->shared.change_status |= CHANGE_ASKED;
       }
-      spin_unlock_bh(&(t->lock));
+      spin_unlock_bh(&(t->dev.lock));
 
       if (wait) {
          ret = bcm_phone_mgr_wait_for_change_completion(t, pl, wq_counter, wait, lock);
       }
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   }
+   while (false);
+
+   return (ret);
+}
+
+int bcm_phone_mgr_set_line_rev_polarity(bcm_phone_mgr_t *t, size_t line,
+   bool rev_polarity
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   )
+{
+   int ret = 0;
+
+   d_bcm_pr_debug("%s(line=%lu, rev_polarity=%d"
+#ifdef BCMPH_EXPORT_DEV_FILE
+      ", wait=%d"
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      ")\n", __func__, (unsigned long)(line), (int)(rev_polarity)
+#ifdef BCMPH_EXPORT_DEV_FILE
+      , (int)(wait)
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      );
+
+#ifdef BCMPH_EXPORT_DEV_FILE
+   bcm_assert(((NULL == lock) && (0 == wait))
+      || ((NULL != lock) && (bcmph_mutex_is_locked(lock))));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+
+   bcm_assert((line < t->phone_line_count)
+      && (phone_line_is_enabled(t->phone_lines[line].line)));
+
+   do { // Empty loop
+      bcm_phone_mgr_line_t *pl = &(t->phone_lines[line]);
+#ifdef BCMPH_EXPORT_DEV_FILE
+      // We init the counter before doing the change
+      // so we are sure not to loose an event between the change
+      // and when we start waiting for an event
+      int wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      pl->shared.new_rev_polarity = rev_polarity;
+#ifdef BCMPH_EXPORT_DEV_FILE
+      if (wait) {
+#endif /* BCMPH_EXPORT_DEV_FILE */
+         pl->shared.change_status |= CHANGE_ASKED_ASAP;
+#ifdef BCMPH_EXPORT_DEV_FILE
+      }
+      else {
+         pl->shared.change_status |= CHANGE_ASKED;
+      }
+      spin_unlock_bh(&(t->dev.lock));
+
+      if (wait) {
+         ret = bcm_phone_mgr_wait_for_change_completion(t, pl, wq_counter, wait, lock);
+      }
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   }
+   while (false);
+
+   return (ret);
+}
+
+int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
+   bcm_phone_line_mode_t mode, int reverse_polarity, __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   )
+{
+   int ret = 0;
+
+   d_bcm_pr_debug("%s(line=%lu, mode=%d, reverse_polarity=%d, tone=0x%lx"
+#ifdef BCMPH_EXPORT_DEV_FILE
+      ", wait=%d"
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      ")\n", __func__, (unsigned long)(line), (int)(mode),
+      (int)(reverse_polarity), (unsigned long)(tone)
+#ifdef BCMPH_EXPORT_DEV_FILE
+      , (int)(wait)
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      );
+
+#ifdef BCMPH_EXPORT_DEV_FILE
+   bcm_assert(((NULL == lock) && (0 == wait))
+      || ((NULL != lock) && (bcmph_mutex_is_locked(lock))));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+
+   bcm_assert((line < t->phone_line_count)
+      && (phone_line_is_enabled(t->phone_lines[line].line))
+      && (((mode != BCMPH_MODE_UNSPECIFIED) && (mode < BCMPH_MAX_MODES))
+          || (reverse_polarity >= 0)));
+
+   do { // Empty loop
+      bcm_phone_mgr_line_t *pl = &(t->phone_lines[line]);
+#ifdef BCMPH_EXPORT_DEV_FILE
+      // We init the counter before doing the change
+      // so we are sure not to loose an event between the change
+      // and when we start waiting for an event
+      int wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
+
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      if (BCMPH_MODE_UNSPECIFIED != mode) {
+         if (mode < BCMPH_MAX_MODES) {
+            pl->shared.new_mode = mode;
+         }
+         else {
+            bcm_pr_debug("Invalid mode %lu\n", (unsigned long)(mode));
+         }
+      }
+      if (reverse_polarity >= 0) {
+         pl->shared.new_rev_polarity = (reverse_polarity ? true : false);
+      }
+      if (BCMPH_TONE_UNSPECIFIED != tone_index) {
+         if (!bcm_phone_mgr_mode_allow_tones(pl->shared.new_mode)) {
+            if (BCMPH_TONE_NONE != tone_index) {
+               bcm_pr_debug("Mode %d does not allow tone emission. Tone changed to %lu\n",
+                  (int)(mode), (unsigned long)(bcm_phone_line_tone_code_index(BCMPH_TONE_NONE)));
+            }
+            pl->shared.new_tone = bcm_phone_line_tone_code_index(BCMPH_TONE_NONE);
+         }
+         else if (tone_index < BCMPH_MAX_TONES) {
+            pl->shared.new_tone = tone;
+         }
+         else {
+            bcm_pr_debug("Invalid tone %lu\n", (unsigned long)(tone));
+         }
+      }
+#ifdef BCMPH_EXPORT_DEV_FILE
+      if (wait) {
+#endif /* BCMPH_EXPORT_DEV_FILE */
+         pl->shared.change_status |= CHANGE_ASKED_ASAP;
+#ifdef BCMPH_EXPORT_DEV_FILE
+      }
+      else {
+         pl->shared.change_status |= CHANGE_ASKED;
+      }
+      spin_unlock_bh(&(t->dev.lock));
+
+      if (wait) {
+         ret = bcm_phone_mgr_wait_for_change_completion(t, pl, wq_counter, wait, lock);
+      }
+#endif /* BCMPH_EXPORT_DEV_FILE */
    }
    while (false);
 
@@ -379,18 +503,31 @@ int bcm_phone_mgr_set_line_mode(bcm_phone_mgr_t *t, size_t line,
 }
 
 int bcm_phone_mgr_set_line_tone(bcm_phone_mgr_t *t, size_t line,
-   __u32 tone, int wait, bcmph_mutex_t *lock)
+   __u32 tone
+#ifdef BCMPH_EXPORT_DEV_FILE
+   , int wait, bcmph_mutex_t *lock
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   )
 {
    int ret = 0;
 #ifdef BCMPH_DEBUG
    bcm_phone_line_tone_t tone_index = bcm_phone_line_tone_decode_index(tone);
 #endif // BCMPH_DEBUG
 
-   d_bcm_pr_debug("bcm_phone_mgr_set_line_tone(line=%lu, tone=0x%lx, wait=%d)\n",
-      (unsigned long)(line), (unsigned long)(tone), (int)(wait));
+   d_bcm_pr_debug("%s(line=%lu, tone=0x%lx"
+#ifdef BCMPH_EXPORT_DEV_FILE
+      ", wait=%d"
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      ")\n", __func__, (unsigned long)(line), (unsigned long)(tone)
+#ifdef BCMPH_EXPORT_DEV_FILE
+      , (int)(wait)
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      );
 
+#ifdef BCMPH_EXPORT_DEV_FILE
    bcm_assert(((NULL == lock) && (0 == wait))
       || ((NULL != lock) && (bcmph_mutex_is_locked(lock))));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
    bcm_assert((line < t->phone_line_count)
       && (phone_line_is_enabled(t->phone_lines[line].line))
@@ -399,24 +536,32 @@ int bcm_phone_mgr_set_line_tone(bcm_phone_mgr_t *t, size_t line,
 
    do { // Empty loop
       bcm_phone_mgr_line_t *pl = &(t->phone_lines[line]);
+#ifdef BCMPH_EXPORT_DEV_FILE
       // We init the counter before doing the change
       // so we are sure not to loose an event between the change
       // and when we start waiting for an event
-      int wq_counter = bcm_wait_queue_get_counter(&(t->eventq));
+      int wq_counter = bcm_wait_queue_get_counter(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
-      spin_lock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
       pl->shared.new_tone = tone;
+#ifdef BCMPH_EXPORT_DEV_FILE
       if (wait) {
          pl->shared.change_status |= CHANGE_ASKED_ASAP;
       }
       else {
+#endif /* BCMPH_EXPORT_DEV_FILE */
          pl->shared.change_status |= CHANGE_ASKED;
+#ifdef BCMPH_EXPORT_DEV_FILE
       }
-      spin_unlock_bh(&(t->lock));
+      spin_unlock_bh(&(t->dev.lock));
 
       if (wait) {
          ret = bcm_phone_mgr_wait_for_change_completion(t, pl, wq_counter, wait, lock);
       }
+#endif /* BCMPH_EXPORT_DEV_FILE */
    }
    while (false);
 
@@ -429,49 +574,61 @@ int bcm_phone_mgr_set_line_state(bcm_phone_mgr_t *t,
 {
    int ret = 0;
 
-   d_bcm_pr_debug("bcm_phone_mgr_set_line_state()\n");
+   d_bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((NULL != set_line_state)
       && (set_line_state->line < t->phone_line_count)
       && (phone_line_is_enabled(t->phone_lines[set_line_state->line].line)));
 
    do { // Empty loop
+#ifdef BCMPH_EXPORT_DEV_FILE
       bool send_event = false;
-      size_t i;
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      size_t digit_idx;
       bcm_phone_mgr_line_t *pl = &(t->phone_lines[set_line_state->line]);
       bcm_phone_line_state_t *line_state = &(pl->shared.line_state);
 
-      spin_lock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
       // Set status
       if ((BCMPH_STATUS_UNSPECIFIED != set_line_state->status) && (set_line_state->status < BCMPH_MAX_STATUS)) {
          if (line_state->status != set_line_state->status) {
             line_state->status = set_line_state->status;
             line_state->status_change_count += 1;
+#ifdef BCMPH_EXPORT_DEV_FILE
             send_event = true;
+#endif /* BCMPH_EXPORT_DEV_FILE */
          }
       }
 
       // Add digits
-      for (i = 0; ((i < set_line_state->digits_count) && (line_state->digits_count < ARRAY_SIZE(line_state->digits))); i += 1) {
-         line_state->digits[line_state->digits_count] = set_line_state->digits[i];
+      for (digit_idx = 0; ((digit_idx < set_line_state->digits_count) && (line_state->digits_count < ARRAY_SIZE(line_state->digits))); digit_idx += 1) {
+         line_state->digits[line_state->digits_count] = set_line_state->digits[digit_idx];
          line_state->digits_count += 1;
       }
-      if (i > 0) {
+#ifdef BCMPH_EXPORT_DEV_FILE
+      if (digit_idx > 0) {
          send_event = true;
       }
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
       // Add flash count
       if (set_line_state->flash_count > 0) {
          line_state->flash_count += set_line_state->flash_count;
-         send_event += 1;
+#ifdef BCMPH_EXPORT_DEV_FILE
+         send_event = true;
+#endif /* BCMPH_EXPORT_DEV_FILE */
       }
 
-      spin_unlock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_unlock_bh(&(t->dev.lock));
 
       if (send_event) {
-         bcm_wait_queue_wake_up(&(t->eventq));
+         bcm_wait_queue_wake_up(&(t->dev.eventq));
       }
+#endif /* BCMPH_EXPORT_DEV_FILE */
    }
    while (false);
 
@@ -482,50 +639,60 @@ int bcm_phone_mgr_set_line_state(bcm_phone_mgr_t *t,
 void bcm_phone_mgr_get_line_states(bcm_phone_mgr_t *t,
    bcm_phone_line_state_t *line_states, size_t line_states_len)
 {
-   size_t i;
+   size_t line_idx;
 
-   dd_bcm_pr_debug("bcm_phone_mgr_get_line_states()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    if (line_states_len > t->phone_line_count) {
       line_states_len = t->phone_line_count;
    }
-   spin_lock_bh(&(t->lock));
-   for (i = 0; (i < line_states_len); i += 1) {
-      bcm_phone_line_state_move(&(t->phone_lines[i].shared.line_state), &(line_states[i]));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   for (line_idx = 0; (line_idx < line_states_len); line_idx += 1) {
+      bcm_phone_line_state_move(&(t->phone_lines[line_idx].shared.line_state), &(line_states[line_idx]));
    }
-   spin_unlock_bh(&(t->lock));
-}
-
-static void bcm_phone_mgr_timer_cb(bcm_timer_t *timer)
-{
-   bcm_phone_mgr_t *t = container_of(timer, bcm_phone_mgr_t, timer);
-   queue_work(t->workqueue, &(t->work));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   spin_unlock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 }
 
 static void bcm_phone_mgr_timer_work_fn(struct work_struct *work)
 {
-   bcm_phone_mgr_t *t = container_of(work, bcm_phone_mgr_t, work);
+   bcm_phone_mgr_t *t = container_of(work, bcm_phone_mgr_t, periodic_work.work);
+   int tick_count = bcm_periodic_work_get_tick_count(&(t->periodic_work));
 
-   dd_bcm_pr_debug("bcm_phone_mgr_timer_work_fn()\n");
+   bcm_periodic_work_dec_tick_count(&(t->periodic_work), tick_count);
 
-   if (bcm_timer_is_active(&(t->timer))) {
-      size_t i;
+   dd_bcm_pr_debug("%s()\n", __func__);
+
+   while (tick_count > 0) {
+      size_t dev_idx;
+      size_t line_idx;
+#ifdef BCMPH_EXPORT_DEV_FILE
       bool send_event;
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
-      spin_lock_bh(&(t->lock));
-      for (i = 0; (i < t->phone_line_count); i += 1) {
-         bcm_phone_mgr_line_t *pl = &(t->phone_lines[i]);
+      tick_count -= 1;
+
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      for (line_idx = 0; (line_idx < t->phone_line_count); line_idx += 1) {
+         bcm_phone_mgr_line_t *pl = &(t->phone_lines[line_idx]);
          phone_line_t *line = pl->line;
          if (phone_line_is_enabled(line)) {
 #ifdef BCMPH_TEST_PCM
             if (line->line_state.status != pl->shared.line_state.status) {
                line->line_state.status = pl->shared.line_state.status;
+               line->new_rev_polarity = false;
                line->new_mode = BCMPH_MODE_IDLE;
                line->new_tone = bcm_phone_line_tone_code_index(BCMPH_TONE_NONE);
             }
-#endif // BCMPH_TEST_PCM
+#endif /* BCMPH_TEST_PCM */
             if ((pl->shared.change_status & (CHANGE_ASKED | CHANGE_ASKED_ASAP))) {
                line->new_codec = pl->shared.new_codec;
+               line->new_rev_polarity = pl->shared.new_rev_polarity;
                line->new_mode = pl->shared.new_mode;
                line->new_tone = pl->shared.new_tone;
                if ((pl->shared.change_status & CHANGE_ASKED_ASAP)) {
@@ -540,18 +707,22 @@ static void bcm_phone_mgr_timer_work_fn(struct work_struct *work)
             }
          }
       }
-      spin_unlock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_unlock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
-      for (i = 0; (i < t->phone_dev_count); i += 1) {
-         if (t->phone_devices[i].line_enable_count > 0) {
-            (*(t->phone_devices[i].dev->vtbl->tick))(t->phone_devices[i].dev);
+      for (dev_idx = 0; (dev_idx < t->phone_dev_count); dev_idx += 1) {
+         if (t->phone_devices[dev_idx].line_enable_count > 0) {
+            (*(t->phone_devices[dev_idx].dev->vtbl->tick))(t->phone_devices[dev_idx].dev);
          }
       }
 
+#ifdef BCMPH_EXPORT_DEV_FILE
       send_event = false;
-      spin_lock_bh(&(t->lock));
-      for (i = 0; (i < t->phone_line_count); i += 1) {
-         bcm_phone_mgr_line_t *pl = &(t->phone_lines[i]);
+      spin_lock_bh(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      for (line_idx = 0; (line_idx < t->phone_line_count); line_idx += 1) {
+         bcm_phone_mgr_line_t *pl = &(t->phone_lines[line_idx]);
          phone_line_t *line = pl->line;
          if (phone_line_is_enabled(line)) {
             if (line->line_state_changed) {
@@ -560,56 +731,65 @@ static void bcm_phone_mgr_timer_work_fn(struct work_struct *work)
                phone_line_move_line_state(line, &(pl->shared.line_state));
                bcm_assert(!line->line_state_changed);
                atomic_set(&(pl->shared.current_codec), pl->shared.line_state.codec);
+               atomic_set(&(pl->shared.current_rev_polarity), pl->shared.line_state.rev_polarity);
                atomic_set(&(pl->shared.current_mode), pl->shared.line_state.mode);
                atomic_set(&(pl->shared.current_tone), pl->shared.line_state.tone);
                // And we set a flag to wake up processes blocked in wait queue eventq
                // to tell them that at least one line state has changed
+#ifdef BCMPH_EXPORT_DEV_FILE
                send_event = true;
+#endif /* BCMPH_EXPORT_DEV_FILE */
             }
             if ((line->new_codec == line->line_state.codec)
+                 && (line->new_rev_polarity == line->line_state.rev_polarity)
                  && (line->new_mode == line->line_state.mode)
                  && (bcm_phone_line_tone_decode_index(line->new_tone) == line->line_state.tone)) {
                if ((pl->shared.change_status & CHANGE_PENDING)) {
                   pl->shared.change_status &= (~(CHANGE_PENDING));
+#ifdef BCMPH_EXPORT_DEV_FILE
                   send_event = true;
+#endif /* BCMPH_EXPORT_DEV_FILE */
                }
             }
          }
       }
-      spin_unlock_bh(&(t->lock));
+#ifdef BCMPH_EXPORT_DEV_FILE
+      spin_unlock_bh(&(t->dev.lock));
 
       if (send_event) {
-         bcm_wait_queue_wake_up(&(t->eventq));
+         bcm_wait_queue_wake_up(&(t->dev.eventq));
       }
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
       (*(t->timer_cb))(t);
-
-      bcm_timer_reschedule(&(t->timer));
    }
 }
 
 void bcm_phone_mgr_stop(bcm_phone_mgr_t *t)
 {
-   size_t i;
+   size_t dev_idx;
+   size_t line_idx;
 
-   bcm_pr_debug("bcm_phone_mgr_stop()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
-   bcm_timer_stop(&(t->timer));
-   cancel_work_sync(&(t->work));
+   bcm_periodic_timer_del_work(t->periodic_timer, &(t->periodic_work));
+   cancel_work_sync(&(t->periodic_work.work));
 
-   for (i = 0; (i < t->phone_dev_count); i += 1) {
-      (*(t->phone_devices[i].dev->vtbl->stop))(t->phone_devices[i].dev);
+   for (dev_idx = 0; (dev_idx < t->phone_dev_count); dev_idx += 1) {
+      (*(t->phone_devices[dev_idx].dev->vtbl->stop))(t->phone_devices[dev_idx].dev);
    }
 
    // Before wake up process waiting on eventq
    // we reset phone_line in particular change_status
-   for (i = 0; (i < t->phone_line_count); i += 1) {
-      bcm_phone_mgr_line_t *pl = &(t->phone_lines[i]);
+   for (line_idx = 0; (line_idx < t->phone_line_count); line_idx += 1) {
+      bcm_phone_mgr_line_t *pl = &(t->phone_lines[line_idx]);
       phone_line_disable(pl->line);
       bcm_phone_mgr_line_reset(pl);
       bcm_assert(NO_CHANGE_ASKED == pl->shared.change_status);
    }
-   bcm_wait_queue_wake_up(&(t->eventq));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   bcm_wait_queue_wake_up(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 }
 
 int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
@@ -617,63 +797,63 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
 {
    int ret = 0;
 
-   bcm_pr_debug("bcm_phone_mgr_start()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
-   bcm_assert((!bcm_timer_is_active(&(t->timer))) && (country < BCMPH_COUNTRY_MAX));
+   bcm_assert(country < BCMPH_COUNTRY_MAX);
 
    do { // Empty loop
-      size_t i;
+      size_t dev_idx;
+      size_t line_idx;
 
-      for (i = 0; (i < t->phone_dev_count); i += 1) {
-         t->phone_devices[i].line_enable_count = 0;
+      for (dev_idx = 0; (dev_idx < t->phone_dev_count); dev_idx += 1) {
+         t->phone_devices[dev_idx].line_enable_count = 0;
       }
 
-      for (i = 0; (i < t->phone_line_count); i += 1) {
-         bcm_phone_mgr_line_t *pl = &(t->phone_lines[i]);
+      for (line_idx = 0; (line_idx < t->phone_line_count); line_idx += 1) {
+         bcm_phone_mgr_line_t *pl = &(t->phone_lines[line_idx]);
          phone_line_disable(pl->line);
          bcm_phone_mgr_line_reset(pl);
          bcm_assert(NO_CHANGE_ASKED == pl->shared.change_status);
       }
 
-      for (i = 0; (i < lps_count); i += 1) {
-         if (!lps[i].enable) {
+      for (line_idx = 0; (line_idx < lps_count); line_idx += 1) {
+         if (!lps[line_idx].enable) {
             continue;
          }
-         bcm_assert((i < t->phone_line_count) && (bcm_phone_mgr_line_supports_codec(t, i, lps[i].codec)));
-         t->phone_devices[t->phone_lines[i].index_dev].line_enable_count += 1;
+         bcm_assert((line_idx < t->phone_line_count) && (bcm_phone_mgr_line_supports_codec(t, line_idx, lps[line_idx].codec)));
+         t->phone_devices[t->phone_lines[line_idx].index_dev].line_enable_count += 1;
       }
 
-      for (i = 0; (i < t->phone_dev_count); i += 1) {
-         if (t->phone_devices[i].line_enable_count > 0) {
+      for (dev_idx = 0; (dev_idx < t->phone_dev_count); dev_idx += 1) {
+         if (t->phone_devices[dev_idx].line_enable_count > 0) {
             const phone_line_params_t *line_params[BCMPH_MAX_LINES_PER_DEV];
-            size_t j;
-            size_t k;
+            size_t line_enabled;
             size_t are_narrowband;
             size_t are_wideband;
 
-            bcm_assert(phone_device_get_line_count(t->phone_devices[i].dev) <= ARRAY_SIZE(line_params));
+            bcm_assert(phone_device_get_line_count(t->phone_devices[dev_idx].dev) <= ARRAY_SIZE(line_params));
 
-            for (j = 0; (j < ARRAY_SIZE(line_params)); j += 1) {
-               line_params[j] = NULL;
+            for (line_idx = 0; (line_idx < ARRAY_SIZE(line_params)); line_idx += 1) {
+               line_params[line_idx] = NULL;
             }
 
-            k = 0;
-            for (j = 0; (j < lps_count); j += 1) {
-               if ((lps[j].enable) && (t->phone_lines[j].index_dev == i)) {
-                  bcm_assert((t->phone_lines[j].index_line < ARRAY_SIZE(line_params))
-                     && (NULL == line_params[t->phone_lines[j].index_line]));
-                  line_params[t->phone_lines[j].index_line] = &(lps[j]);
-                  k += 1;
+            line_enabled = 0;
+            for (line_idx = 0; (line_idx < lps_count); line_idx += 1) {
+               if ((lps[line_idx].enable) && (t->phone_lines[line_idx].index_dev == dev_idx)) {
+                  bcm_assert((t->phone_lines[line_idx].index_line < ARRAY_SIZE(line_params))
+                     && (NULL == line_params[t->phone_lines[line_idx].index_line]));
+                  line_params[t->phone_lines[line_idx].index_line] = &(lps[line_idx]);
+                  line_enabled += 1;
                }
             }
-            bcm_assert(k == t->phone_devices[i].line_enable_count);
+            bcm_assert(line_enabled == t->phone_devices[dev_idx].line_enable_count);
 
             // Now we check that all lines are wideband or not
             are_narrowband = 0;
             are_wideband = 0;
-            for (j = 0; (j < ARRAY_SIZE(line_params)); j += 1) {
-               if (NULL != line_params[j]) {
-                  if (bcm_phone_mgr_codec_is_wideband(line_params[j]->codec)) {
+            for (line_idx = 0; (line_idx < ARRAY_SIZE(line_params)); line_idx += 1) {
+               if (NULL != line_params[line_idx]) {
+                  if (bcm_phone_mgr_codec_is_wideband(line_params[line_idx]->codec)) {
                      are_wideband += 1;
                   }
                   else {
@@ -682,7 +862,7 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
                }
             }
             if ((0 != are_wideband) && (0 != are_narrowband)) {
-               const phone_desc_device_t *desc = phone_device_get_desc(t->phone_devices[i].dev);
+               const phone_desc_device_t *desc = phone_device_get_desc(t->phone_devices[dev_idx].dev);
                if (!(desc->caps & BCMPH_CAPS_CAN_MIX_NB_AND_WB)) {
                   bcm_assert(!(desc->caps & BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB));
                   bcm_pr_err("All or none of the lines of the same device, can use wideband codec\n");
@@ -690,27 +870,28 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
                   break;
                }
             }
-            ret = (*(t->phone_devices[i].dev->vtbl->start))(
-               t->phone_devices[i].dev, country, line_params,
+            ret = (*(t->phone_devices[dev_idx].dev->vtbl->start))(
+               t->phone_devices[dev_idx].dev, country, line_params,
                ARRAY_SIZE(line_params));
             if (ret) {
                bcm_pr_debug("Failed to configure device\n");
-               while (i > 0) {
-                  i -= 1;
-                  (*(t->phone_devices[i].dev->vtbl->stop))(t->phone_devices[i].dev);
+               while (dev_idx > 0) {
+                  dev_idx -= 1;
+                  (*(t->phone_devices[dev_idx].dev->vtbl->stop))(t->phone_devices[dev_idx].dev);
                }
                break;
             }
          }
       }
       if (!ret) {
-         for (i = 0; (i < t->phone_line_count); i += 1) {
-            bcm_phone_mgr_line_t *pl = &(t->phone_lines[i]);
+         for (line_idx = 0; (line_idx < t->phone_line_count); line_idx += 1) {
+            bcm_phone_mgr_line_t *pl = &(t->phone_lines[line_idx]);
             if (phone_line_is_enabled(pl->line)) {
                bcm_phone_mgr_line_init_from_line(pl);
             }
          }
-         bcm_timer_start(&(t->timer), t->board_desc->phone_desc->tick_period);
+         bcm_periodic_timer_add_work(t->periodic_timer,
+            &(t->periodic_work), t->board_desc->phone_desc->tick_period * 1000);
       }
    } while (false);
 
@@ -720,22 +901,22 @@ int bcm_phone_mgr_start(bcm_phone_mgr_t *t, bcmph_country_t country,
 static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
 {
    int ret = 0;
-   size_t i;
+   size_t line_idx;
+   size_t dev_idx;
 
-   bcm_pr_debug("bcm_phone_mgr_devs_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    t->phone_dev_count = 0;
    t->phone_line_count = 0;
 
-   for (i = 0; (i < ARRAY_SIZE(t->phone_lines)); i += 1) {
-      bcm_phone_mgr_line_init(&(t->phone_lines[i]));
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->phone_lines)); line_idx += 1) {
+      bcm_phone_mgr_line_init(&(t->phone_lines[line_idx]));
    }
 
    ret = 0;
-   for (i = 0; (i < t->board_desc->phone_desc->device_count); i += 1) {
-      const phone_desc_device_t *desc = &(t->board_desc->phone_desc->devices[i]);
+   for (dev_idx = 0; (dev_idx < t->board_desc->phone_desc->device_count); dev_idx += 1) {
+      const phone_desc_device_t *desc = &(t->board_desc->phone_desc->devices[dev_idx]);
       phone_device_t *dev;
-      size_t j;
       size_t line_count;
       size_t fxs_count;
 
@@ -743,6 +924,20 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
          bcm_assert(false);
          break;
       }
+
+#ifdef BCMPH_DAHDI_DRIVER
+# ifndef BCMPH_NOHW
+      if (!(desc->caps & BCMPH_CAPS_ALAW_CODEC)) {
+         bcm_assert(false);
+         continue;
+      }
+# else /* BCMPH_NOHW */
+      if (!(desc->caps & BCMPH_CAPS_LINEAR_CODEC)) {
+         bcm_assert(false);
+         continue;
+      }
+# endif /* BCMPH_NOHW */
+#endif /* BCMPH_DAHDI_DRIVER */
 
       if (!(desc->caps & BCMPH_CAPS_CAN_MIX_NB_AND_WB)) {
          if ((desc->caps & BCMPH_CAPS_CAN_SWITCH_BETWEEN_NB_AND_WB)) {
@@ -770,8 +965,8 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
       }
 
       fxs_count = 0;
-      for (j = 0; (j < line_count); j += 1) {
-         const phone_desc_line_t *line_desc = phone_device_get_line_desc(dev, j);
+      for (line_idx = 0; (line_idx < line_count); line_idx += 1) {
+         const phone_desc_line_t *line_desc = phone_device_get_line_desc(dev, line_idx);
          bcm_assert(NULL != line_desc);
          if (BCMPH_LIN_FXS == line_desc->type) {
             bcm_phone_mgr_line_t *pl;
@@ -780,9 +975,9 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
                break;
             }
             pl = &(t->phone_lines[t->phone_line_count]);
-            pl->index_dev = i;
-            pl->index_line = j;
-            pl->line = phone_device_get_line(dev, j);
+            pl->index_dev = dev_idx;
+            pl->index_line = line_idx;
+            pl->line = phone_device_get_line(dev, line_idx);
             bcm_assert(NULL != pl->line);
             t->phone_line_count += 1;
             fxs_count += 1;
@@ -813,8 +1008,8 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
          phone_device_free(t->phone_devices[t->phone_dev_count].dev);
          t->phone_devices[t->phone_dev_count].dev = NULL;
       }
-      for (i = 0; (i < ARRAY_SIZE(t->phone_lines)); i += 1) {
-         bcm_phone_mgr_line_deinit(&(t->phone_lines[i]));
+      for (line_idx = 0; (line_idx < ARRAY_SIZE(t->phone_lines)); line_idx += 1) {
+         bcm_phone_mgr_line_deinit(&(t->phone_lines[line_idx]));
       }
       t->phone_line_count = 0;
    }
@@ -828,89 +1023,88 @@ static int __init bcm_phone_mgr_devs_init(bcm_phone_mgr_t *t)
 
 static void bcm_phone_mgr_devs_deinit(bcm_phone_mgr_t *t)
 {
-   size_t i;
+   size_t line_idx;
 
-   bcm_pr_debug("bcm_phone_mgr_devs_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    while (t->phone_dev_count > 0) {
       t->phone_dev_count -= 1;
       phone_device_free(t->phone_devices[t->phone_dev_count].dev);
       t->phone_devices[t->phone_dev_count].dev = NULL;
    }
-   for (i = 0; (i < ARRAY_SIZE(t->phone_lines)); i += 1) {
-      bcm_phone_mgr_line_deinit(&(t->phone_lines[i]));
+   for (line_idx = 0; (line_idx < ARRAY_SIZE(t->phone_lines)); line_idx += 1) {
+      bcm_phone_mgr_line_deinit(&(t->phone_lines[line_idx]));
    }
    t->phone_line_count = 0;
 }
 
 int __init bcm_phone_mgr_init(bcm_phone_mgr_t *t,
-   const board_desc_t *board_desc, void (*timer_cb)(struct bcm_phones *t))
+   const board_desc_t *board_desc,
+   bcm_periodic_timer_t *periodic_timer, struct workqueue_struct *wq,
+   void (*timer_cb)(struct bcm_phones *t))
 {
-   int ret;
+   int ret = -1;
 
-   bcm_pr_debug("bcm_phone_mgr_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert((NULL != board_desc) && (NULL != timer_cb));
 
    t->board_desc = board_desc;
+   t->periodic_timer = periodic_timer;
+   t->wq = wq;
    t->timer_cb = timer_cb;
 
    if (jiffies_to_msecs(1) > t->board_desc->phone_desc->tick_period) {
-      bcm_pr_err("Required timer period (%lu usecs) is below minimal period allowed by the kernel (%lu usecs)\n", (unsigned long)(t->board_desc->phone_desc->tick_period), (unsigned long)(jiffies_to_usecs(1)));
+      bcm_pr_err("Required timer period (%lu msecs) is below minimal period allowed by driver (%lu msecs)\n",
+         (unsigned long)(t->board_desc->phone_desc->tick_period), (unsigned long)(jiffies_to_msecs(1)));
       ret = -1;
       goto fail_period;
    }
+
+   bcm_periodic_work_init(&(t->periodic_work), t->wq, bcm_phone_mgr_timer_work_fn);
 
    ret = bcm_phone_mgr_devs_init(t);
    if (ret) {
       goto fail_phone_devs;
    }
 
+#ifdef BCMPH_EXPORT_DEV_FILE
    bcm_pr_debug("Initializing event wait queue\n");
-   bcm_wait_queue_init(&(t->eventq));
+   bcm_wait_queue_init(&(t->dev.eventq));
 
-   t->workqueue = alloc_workqueue(driver_name, WQ_UNBOUND | WQ_FREEZABLE | WQ_HIGHPRI, 1);
-   if (NULL == t->workqueue) {
-      ret = -ENOMEM;
-      goto fail_create_wq;
-   }
-   INIT_WORK(&(t->work), bcm_phone_mgr_timer_work_fn);
-
-   spin_lock_init(&(t->lock));
-
-   // Init time work
-   ret = bcm_timer_init(&(t->timer), bcm_phone_mgr_timer_cb);
-   if (ret) {
-      goto fail_timer;
-   }
+   spin_lock_init(&(t->dev.lock));
+#endif /* BCMPH_EXPORT_DEV_FILE */
 
    return (0);
 
-   bcm_timer_deinit(&(t->timer));
-fail_timer:
-   bcm_pr_debug("Flushing timer workqueue and destroying it\n");
-   cancel_work_sync(&(t->work));
-   flush_workqueue(t->workqueue);
-   destroy_workqueue(t->workqueue);
-   t->workqueue = NULL;
-fail_create_wq:
-   bcm_wait_queue_deinit(&(t->eventq));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   bcm_wait_queue_deinit(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
    bcm_phone_mgr_devs_deinit(t);
 fail_phone_devs:
+   bcm_periodic_work_deinit(&(t->periodic_work));
 fail_period:
+   t->timer_cb = NULL;
+   t->wq = NULL;
+   t->periodic_timer = NULL;
+   t->board_desc = NULL;
    return (ret);
 }
 
 void bcm_phone_mgr_deinit(bcm_phone_mgr_t *t)
 {
-   bcm_pr_debug("bcm_phone_mgr_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
-   bcm_timer_deinit(&(t->timer));
-   bcm_pr_debug("Flushing timer workqueue and destroying it\n");
-   cancel_work_sync(&(t->work));
-   flush_workqueue(t->workqueue);
-   destroy_workqueue(t->workqueue);
-   t->workqueue = NULL;
-   bcm_wait_queue_deinit(&(t->eventq));
+   bcm_pr_debug("Cancelling work and destroying it\n");
+   bcm_periodic_timer_del_work(t->periodic_timer, &(t->periodic_work));
+   cancel_work_sync(&(t->periodic_work.work));
+#ifdef BCMPH_EXPORT_DEV_FILE
+   bcm_wait_queue_deinit(&(t->dev.eventq));
+#endif /* BCMPH_EXPORT_DEV_FILE */
    bcm_phone_mgr_devs_deinit(t);
+   bcm_periodic_work_deinit(&(t->periodic_work));
+   t->timer_cb = NULL;
+   t->wq = NULL;
+   t->periodic_timer = NULL;
+   t->board_desc = NULL;
 }

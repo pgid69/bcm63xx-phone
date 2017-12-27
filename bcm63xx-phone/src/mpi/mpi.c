@@ -5,11 +5,13 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
+
+#include <extern/linux/kernel.h>
 
 #ifndef BCMPH_NOHW
 #ifndef BCMPH_USE_SPI_DRIVER
-#include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -22,6 +24,9 @@
 #include <linux/err.h>
 #include <linux/workqueue.h>
 #include <linux/pm_runtime.h>
+#include <linux/version.h>
+#else // BCMPH_USE_SPI_DRIVER
+#include <linux/moduleparam.h>
 #endif // BCMPH_USE_SPI_DRIVER
 #endif // BCMPH_NOHW
 
@@ -33,48 +38,52 @@
 #include <compile.h>
 
 #ifndef BCMPH_NOHW
-static void bcm_mpi_enable_extra_CSs(void)
+
+#ifdef BCMPH_USE_SPI_DRIVER
+static bool bcm_drv_param_mpi_no_exclusive_bus_access = false;
+# ifdef __KERNEL__
+// If device has exclusive bus access, this param allows overriding the
+// value
+module_param_named(mpi_no_exclusive_bus_access, bcm_drv_param_mpi_no_exclusive_bus_access, invbool, 0);
+# endif /* __KERNEL__ */
+#endif /* BCMPH_USE_SPI_DRIVER */
+
+static void bcm_mpi_enable_extra_CSs(u16 cs)
 {
    /*
     Code adapted from http://pastebin.com/g0bQGPRj
    */
 
-   if (BCMCPU_IS_6348()) {
-      /* BCM6348 */
-      u32 val;
-      /* Enable Extra SPI CS */
-      /* GPIO 29 is SS2, GPIO 30 is SS3, GPIO31 is SS4 FIXME */
-      val = bcm_gpio_readl(GPIO_MODE_REG);
-      val |= GPIO_MODE_6348_G1_SPI_MASTER;
-      bcm_gpio_writel(val, GPIO_MODE_REG);
-   }
-
    if (BCMCPU_IS_6358()) {
-      /* BCM6358 */
-      u32 val;
-      /* Enable Overlay for SPI SS Pins */
-      val = bcm_gpio_readl(GPIO_MODE_REG);
-      val |= GPIO_MODE_6358_EXTRA_SPI_SS;
-      bcm_gpio_writel(val, GPIO_MODE_REG);
-      /* Enable SPI Slave Select as Output Pins */
-      /* GPIO 32 is SS2, GPIO 33 is SS3 */
-      val = bcm_gpio_readl(GPIO_CTL_HI_REG);
-      val |= 0x0003;
-      bcm_gpio_writel(val, GPIO_CTL_HI_REG);
+      if (cs >= 2) {
+         /* BCM6358 */
+         u32 val;
+         /* Enable Overlay for SPI SS Pins */
+         val = bcm_gpio_readl(GPIO_MODE_REG);
+         val |= GPIO_MODE_6358_EXTRA_SPI_SS;
+         bcm_gpio_writel(val, GPIO_MODE_REG);
+         /* Enable SPI Slave Select as Output Pins */
+         /* GPIO 32 is SS2, GPIO 33 is SS3 */
+         val = bcm_gpio_readl(GPIO_CTL_HI_REG);
+         val |= 0x0003;
+         bcm_gpio_writel(val, GPIO_CTL_HI_REG);
+      }
    }
 
    if (BCMCPU_IS_6368()) {
-      /* BCM6368 */
-      u32 val;
-      /* Enable Extra SPI CS */
-      val = bcm_gpio_readl(GPIO_MODE_REG);
-      val |= (GPIO_MODE_6368_SPI_SSN2 | GPIO_MODE_6368_SPI_SSN3 | GPIO_MODE_6368_SPI_SSN4 | GPIO_MODE_6368_SPI_SSN5);
-      bcm_gpio_writel(val, GPIO_MODE_REG);
-      /* Enable SPI Slave Select as Output Pins */
-      /* GPIO 28 is SS2, GPIO 29 is SS3, GPIO 30 is SS4, GPIO 31 is SS5*/
-      val = bcm_gpio_readl(GPIO_CTL_LO_REG);
-      val |= (GPIO_MODE_6368_SPI_SSN2 | GPIO_MODE_6368_SPI_SSN3 | GPIO_MODE_6368_SPI_SSN4 | GPIO_MODE_6368_SPI_SSN5);
-      bcm_gpio_writel(val, GPIO_CTL_LO_REG);
+      if (cs >= 2) {
+         /* BCM6368 */
+         u32 val;
+         /* Enable Extra SPI CS */
+         val = bcm_gpio_readl(GPIO_MODE_REG);
+         val |= (GPIO_MODE_6368_SPI_SSN2 << (cs - 2));
+         bcm_gpio_writel(val, GPIO_MODE_REG);
+         /* Enable SPI Slave Select as Output Pins */
+         /* GPIO 28 is SS2, GPIO 29 is SS3, GPIO 30 is SS4, GPIO 31 is SS5*/
+         val = bcm_gpio_readl(GPIO_CTL_LO_REG);
+         val |= (GPIO_MODE_6368_SPI_SSN2 << (cs - 2));
+         bcm_gpio_writel(val, GPIO_CTL_LO_REG);
+      }
    }
 }
 
@@ -118,21 +127,9 @@ enum bcm63xx_regs_spi {
    SPI_MSG_CTL,
    SPI_MSG_DATA,
    SPI_RX_DATA,
-};
-
-static const unsigned long bcm6348_spi_reg_offsets[] = {
-   [SPI_CMD]      = SPI_6348_CMD,
-   [SPI_INT_STATUS]  = SPI_6348_INT_STATUS,
-   [SPI_INT_MASK_ST] = SPI_6348_INT_MASK_ST,
-   [SPI_INT_MASK]    = SPI_6348_INT_MASK,
-   [SPI_ST]    = SPI_6348_ST,
-   [SPI_CLK_CFG]     = SPI_6348_CLK_CFG,
-   [SPI_FILL_BYTE]      = SPI_6348_FILL_BYTE,
-   [SPI_MSG_TAIL]    = SPI_6348_MSG_TAIL,
-   [SPI_RX_TAIL]     = SPI_6348_RX_TAIL,
-   [SPI_MSG_CTL]     = SPI_6348_MSG_CTL,
-   [SPI_MSG_DATA]    = SPI_6348_MSG_DATA,
-   [SPI_RX_DATA]     = SPI_6348_RX_DATA,
+   SPI_MSG_TYPE_SHIFT,
+   SPI_MSG_CTL_WIDTH,
+   SPI_MSG_DATA_SIZE,
 };
 
 static const unsigned long bcm6358_spi_reg_offsets[] = {
@@ -148,24 +145,18 @@ static const unsigned long bcm6358_spi_reg_offsets[] = {
    [SPI_MSG_CTL]     = SPI_6358_MSG_CTL,
    [SPI_MSG_DATA]    = SPI_6358_MSG_DATA,
    [SPI_RX_DATA]     = SPI_6358_RX_DATA,
+   [SPI_MSG_TYPE_SHIFT] = SPI_6358_MSG_TYPE_SHIFT,
+   [SPI_MSG_CTL_WIDTH]  = SPI_6358_MSG_CTL_WIDTH,
+   [SPI_MSG_DATA_SIZE]  = SPI_6358_MSG_DATA_SIZE,
 };
-
-static void bcm_mpi_dev_data_init(bcm_mpi_dev_data_t *bs)
+static void bcm_mpi_dev_data_init(bcm_mpi_dev_data_t *bs, const unsigned long *reg_offsets)
 {
    memset(bs, 0, sizeof(*bs));
    bs->num_chipselect = BCM63XX_SPI_MAX_CS;
-   if (BCMCPU_IS_6348()) {
-      bs->reg_offsets = bcm6348_spi_reg_offsets;
-      bs->fifo_size = SPI_6348_MSG_DATA_SIZE;
-      bs->msg_type_shift = SPI_6348_MSG_TYPE_SHIFT;
-      bs->msg_ctl_width = SPI_6348_MSG_CTL_WIDTH;
-   }
-   else {
-      bs->reg_offsets = bcm6358_spi_reg_offsets;
-      bs->fifo_size = SPI_6358_MSG_DATA_SIZE;
-      bs->msg_type_shift = SPI_6358_MSG_TYPE_SHIFT;
-      bs->msg_ctl_width = SPI_6358_MSG_CTL_WIDTH;
-   }
+   bs->reg_offsets = reg_offsets;
+   bs->fifo_size = bs->reg_offsets[SPI_MSG_DATA_SIZE];
+   bs->msg_type_shift = bs->reg_offsets[SPI_MSG_TYPE_SHIFT];
+   bs->msg_ctl_width = bs->reg_offsets[SPI_MSG_CTL_WIDTH];
 }
 
 static inline u8 bcm_spi_readb(bcm_mpi_dev_data_t *bs,
@@ -173,7 +164,7 @@ static inline u8 bcm_spi_readb(bcm_mpi_dev_data_t *bs,
 {
    u8 ret;
    ret = bcm_readb(bs->regs + bs->reg_offsets[offset]);
-   dd_bcm_pr_debug("bcm_spi_readb(off=0x%lx) -> 0x%x\n", (unsigned long)(offset), (unsigned int)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%x\n", __func__, (unsigned long)(offset), (unsigned int)(ret));
    return (ret);
 }
 
@@ -182,21 +173,21 @@ static inline u16 bcm_spi_readw(bcm_mpi_dev_data_t *bs,
 {
    u16 ret;
    ret = bcm_readw(bs->regs + bs->reg_offsets[offset]);
-   dd_bcm_pr_debug("bcm_spi_readw(off=0x%lx) -> 0x%x\n", (unsigned long)(offset), (unsigned int)(ret));
+   dd_bcm_pr_debug("%s(off=0x%lx) -> 0x%x\n", __func__, (unsigned long)(offset), (unsigned int)(ret));
    return (ret);
 }
 
 static inline void bcm_spi_writeb(bcm_mpi_dev_data_t *bs,
               u8 value, unsigned int offset)
 {
-   dd_bcm_pr_debug("bcm_spi_writeb(val=0x%x, off=0x%lx)\n", (unsigned int)(value), (unsigned long)(offset));
+   dd_bcm_pr_debug("%s(val=0x%x, off=0x%lx)\n", __func__, (unsigned int)(value), (unsigned long)(offset));
    bcm_writeb(value, bs->regs + bs->reg_offsets[offset]);
 }
 
 static inline void bcm_spi_writew(bcm_mpi_dev_data_t *bs,
               u16 value, unsigned int offset)
 {
-   dd_bcm_pr_debug("bcm_spi_writew(val=0x%x, off=0x%lx)\n", (unsigned int)(value), (unsigned long)(offset));
+   dd_bcm_pr_debug("%s(val=0x%x, off=0x%lx)\n", __func__, (unsigned int)(value), (unsigned long)(offset));
    bcm_writew(value, bs->regs + bs->reg_offsets[offset]);
 }
 
@@ -210,29 +201,29 @@ static const unsigned bcm63xx_spi_freq_table[SPI_CLK_MASK][2] = {
    {   391000, SPI_CLK_0_391MHZ }
 };
 
-static unsigned bcm_mpi_get_clk_cfg(u32 hz, u8 cs_off_time)
+static unsigned bcm_mpi_get_clk_cfg(u32 hz, u8 cs_off_clk_cycles)
 {
    u8 clk_cfg = 0;
-   size_t i;
+   size_t freq_idx;
 
-   dd_bcm_pr_debug("bcm_mpi_get_clk_cfg(hz=%lu, cs_off_time=%u)\n", (unsigned long)(hz), (unsigned int)(cs_off_time));
+   dd_bcm_pr_debug("%s(hz=%lu, cs_off_clk_cycles=%u)\n", __func__, (unsigned long)(hz), (unsigned int)(cs_off_clk_cycles));
 
    /* Find the closest clock configuration */
-   for (i = 0; (i < ARRAY_SIZE(bcm63xx_spi_freq_table)); i++) {
-      if (hz >= bcm63xx_spi_freq_table[i][0]) {
-         clk_cfg |= bcm63xx_spi_freq_table[i][1];
+   for (freq_idx = 0; (freq_idx < ARRAY_SIZE(bcm63xx_spi_freq_table)); freq_idx += 1) {
+      if (hz >= bcm63xx_spi_freq_table[freq_idx][0]) {
+         clk_cfg |= bcm63xx_spi_freq_table[freq_idx][1];
          break;
       }
    }
 
    /* No matching configuration found, default to lowest */
-   if (i >= ARRAY_SIZE(bcm63xx_spi_freq_table)) {
+   if (freq_idx >= ARRAY_SIZE(bcm63xx_spi_freq_table)) {
       clk_cfg |= SPI_CLK_0_391MHZ;
    }
 
-   bcm_assert(((cs_off_time << SPI_SSOFFTIME_SHIFT) & (~(SPI_SSOFFTIME_MASK))) == 0);
+   bcm_assert(((cs_off_clk_cycles << SPI_SSOFFTIME_SHIFT) & (~(SPI_SSOFFTIME_MASK))) == 0);
 
-   clk_cfg |= (cs_off_time << SPI_SSOFFTIME_SHIFT);
+   clk_cfg |= (cs_off_clk_cycles << SPI_SSOFFTIME_SHIFT);
 
    return (clk_cfg);
 }
@@ -241,7 +232,7 @@ static void bcm_mpi_set_clk_cfg(bcm_mpi_dev_data_t *bs, u8 clk_cfg)
 {
    u8 reg;
 
-   dd_bcm_pr_debug("bcm_mpi_set_clk_cfg(0x%x)\n", (unsigned int)(clk_cfg));
+   dd_bcm_pr_debug("%s(0x%x)\n", __func__, (unsigned int)(clk_cfg));
 
    /* clear existing clock configuration bits of the register */
    reg = bcm_spi_readb(bs, SPI_CLK_CFG);
@@ -255,7 +246,7 @@ static void bcm_mpi_set_clk_cfg(bcm_mpi_dev_data_t *bs, u8 clk_cfg)
 
 static void bcm_mpi_set_fill_byte(bcm_mpi_dev_data_t *bs, u8 fill_byte)
 {
-   dd_bcm_pr_debug("bcm_mpi_set_fill_byte(0x%x)\n", (unsigned int)(fill_byte));
+   dd_bcm_pr_debug("%s(0x%x)\n", __func__, (unsigned int)(fill_byte));
 
    bcm_spi_writeb(bs, fill_byte, SPI_FILL_BYTE);
 
@@ -264,13 +255,13 @@ static void bcm_mpi_set_fill_byte(bcm_mpi_dev_data_t *bs, u8 fill_byte)
 
 static inline void bcm_mpi_setup_transfer(bcm_mpi_t *t)
 {
-   dd_bcm_pr_debug("bcm_mpi_setup_transfer()\n");
+   dd_bcm_pr_debug("%s()\n", __func__);
 
    if (t->dev_data->clk_cfg != t->clk_cfg) {
       bcm_mpi_set_clk_cfg(t->dev_data, t->clk_cfg);
    }
-   if (t->dev_data->fill_byte != t->fill_byte) {
-      bcm_mpi_set_fill_byte(t->dev_data, t->fill_byte);
+   if (t->dev_data->fill_byte != t->trx_opts.fill_byte) {
+      bcm_mpi_set_fill_byte(t->dev_data, t->trx_opts.fill_byte);
    }
 }
 
@@ -284,15 +275,15 @@ static int bcm_mpi_rw_buf(bcm_mpi_t *t, u8 *buf, u8 buf_len,
    unsigned int timeout;
    u8 rx_tail;
 
-   dd_bcm_pr_debug("bcm_mpi_rw_buf(buf_len=%u, do_tx=%d, do_rx=%d, prepend_buf_len=%u)\n",
-      (unsigned int)(buf_len), (int)(do_tx), (int)(do_rx), (unsigned int)(prepend_buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%u, do_tx=%d, do_rx=%d, prepend_buf_len=%u)\n",
+      __func__, (unsigned int)(buf_len), (int)(do_tx), (int)(do_rx), (unsigned int)(prepend_buf_len));
 
    /* Disable the CMD_DONE interrupt */
    bcm_spi_writeb(bs, 0, SPI_INT_MASK);
 
    cmd = SPI_CMD_START_IMMEDIATE;
    cmd |= (t->mpi_cs << SPI_CMD_DEVICE_ID_SHIFT);
-   if (t->toggle_cs) {
+   if (t->trx_opts.drop_cs_after_each_byte) {
       cmd |= (1 << SPI_CMD_ONE_BYTE_SHIFT);
    }
 
@@ -311,7 +302,7 @@ static int bcm_mpi_rw_buf(bcm_mpi_t *t, u8 *buf, u8 buf_len,
       }
    }
 
-   if (t->wait_completion_with_irq) {
+   if (t->trx_opts.wait_completion_with_irq) {
       init_completion(&(bs->done));
    }
 
@@ -343,7 +334,7 @@ static int bcm_mpi_rw_buf(bcm_mpi_t *t, u8 *buf, u8 buf_len,
    }
 
    bcm_spi_writeb(bs, SPI_INTR_CLEAR_ALL, SPI_INT_STATUS);
-   if (t->wait_completion_with_irq) {
+   if (t->trx_opts.wait_completion_with_irq) {
       /* Enable the CMD_DONE interrupt */
       bcm_spi_writeb(bs, SPI_INTR_CMD_DONE, SPI_INT_MASK);
    }
@@ -351,7 +342,7 @@ static int bcm_mpi_rw_buf(bcm_mpi_t *t, u8 *buf, u8 buf_len,
    /* Issue the transfer */
    bcm_spi_writew(bs, cmd, SPI_CMD);
 
-   if (t->wait_completion_with_irq) {
+   if (t->trx_opts.wait_completion_with_irq) {
       timeout = wait_for_completion_timeout(&bs->done, HZ);
       if (!timeout) {
          return (-ETIMEDOUT);
@@ -401,6 +392,17 @@ static bcm_mpi_dev_data_t bcm_mpi_dev_data = {
    .ref_count = 0
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+static const struct platform_device_id bcm63xx_spi_dev_match[] = {
+   {
+      .name = "bcm6358-spi",
+      .driver_data = (unsigned long)bcm6358_spi_reg_offsets,
+   },
+   {
+   },
+};
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0) */
+
 static int bcm63xx_spi_probe(struct platform_device *pdev)
 {
    struct device *dev = &(pdev->dev);
@@ -409,10 +411,14 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    int irq;
    bcm_mpi_dev_data_t *bs;
 
-   bcm_pr_debug("bcm63xx_spi_probe()\n");
+   bcm_pr_debug("%s()\n", __func__);
+
+   if (!pdev->id_entry->driver_data) {
+      return -EINVAL;
+   }
 
    bs = &(bcm_mpi_dev_data);
-   bcm_mpi_dev_data_init(bs);
+   bcm_mpi_dev_data_init(bs, (const unsigned long *)pdev->id_entry->driver_data);
    bs->ref_count = 1;
    bs->pdev = pdev;
 
@@ -476,8 +482,6 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    dev_info(dev, "at 0x%08x (irq %d, FIFOs size %d)\n",
        bs->res_start, bs->irq, bs->fifo_size);
 
-   bcm_mpi_enable_extra_CSs();
-
    return 0;
 
    clk_disable(bs->clk);
@@ -500,7 +504,7 @@ static int bcm63xx_spi_remove(struct platform_device *pdev)
 {
    bcm_mpi_dev_data_t *bs = platform_get_drvdata(pdev);
 
-   bcm_pr_debug("bcm63xx_spi_remove()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    bcm_assert(1 == bs->ref_count);
 
@@ -525,7 +529,7 @@ static int bcm63xx_spi_suspend(struct device *dev)
    bcm_mpi_dev_data_t *bs =
          platform_get_drvdata(to_platform_device(dev));
 
-   bcm_pr_debug("bcm63xx_spi_suspend()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    clk_disable(bs->clk);
 
@@ -537,7 +541,7 @@ static int bcm63xx_spi_resume(struct device *dev)
    bcm_mpi_dev_data_t *bs =
          platform_get_drvdata(to_platform_device(dev));
 
-   bcm_pr_debug("bcm63xx_spi_resume()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
    clk_enable(bs->clk);
 
@@ -556,10 +560,14 @@ static const struct dev_pm_ops bcm63xx_spi_pm_ops = {
 
 static struct platform_driver bcm63xx_spi_driver = {
    .driver = {
-      .name = "bcm63xx-spi",
-      .owner   = THIS_MODULE,
-      .pm   = BCM63XX_SPI_PM_OPS,
+      .name       = "bcm63xx-spi",
+      .owner      = THIS_MODULE,
+      .pm         = BCM63XX_SPI_PM_OPS,
+      .probe_type = PROBE_FORCE_SYNCHRONOUS,
    },
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+   .id_table   = bcm63xx_spi_dev_match,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0) */
    .probe      = bcm63xx_spi_probe,
    .remove     = bcm63xx_spi_remove,
 };
@@ -570,7 +578,7 @@ static struct platform_driver bcm63xx_spi_driver = {
 void bcm_mpi_dump_and_reset_trace(bcm_mpi_t *t)
 {
    size_t i;
-   char message[1024];
+   char message[1008];
 
    if (t->trace_len > 0) {
       size_t l;
@@ -632,75 +640,73 @@ static void bcm_mpi_add_trace(bcm_mpi_t *t, __u8 dir, const __u8 *buf, int len)
 }
 #endif // BCMPH_DEBUG_MPI
 
+#ifdef BCMPH_USE_SPI_DRIVER
+# ifndef BCMPH_NOHW
+static inline int bcm_make_transfer(bcm_mpi_t *t, struct spi_message *msg)
+{
+   int ret;
+   msg->spi = t->dev;
+   if (t->bus_is_locked) {
+      ret = bcm63xx_spi_raw_sync_locked(t->dev, &(t->trx_opts), msg);
+   }
+   else {
+      spi_bus_lock(t->dev->master);
+      ret = bcm63xx_spi_raw_sync_locked(t->dev, &(t->trx_opts), msg);
+      spi_bus_unlock(t->dev->master);
+   }
+   if (!ret) {
+      ret = msg->status;
+   }
+   return (ret);
+}
+# endif // !BCMPH_NOHW
+#endif // BCMPH_USE_SPI_DRIVER
+
 int bcm_mpi_write(bcm_mpi_t *t, const __u8 *buf, __u8 buf_len)
 {
    int ret = 0;
 
 #ifdef BCMPH_USE_SPI_DRIVER
 
-#ifndef BCMPH_NOHW
-   struct spi_transfer  tr;
-   struct spi_message   msg;
-#endif // !BCMPH_NOHW
+# ifndef BCMPH_NOHW
+   struct spi_transfer tr;
+   struct spi_message msg;
+# endif // !BCMPH_NOHW
 
-   dd_bcm_pr_debug("bcm_mpi_write(buf_len=%d)\n", (int)(buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d)\n", __func__, (int)(buf_len));
 
-#ifndef BCMPH_NOHW
-#ifdef BCMPH_DEBUG_MPI
+# ifndef BCMPH_NOHW
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_WRITE, buf, buf_len);
-#endif // BCMPH_DEBUG_MPI
-   if (!t->toggle_cs) {
-      spi_message_init(&(msg));
-      memset(&(tr), 0, sizeof(tr));
-      tr.tx_buf = buf;
-      tr.len = buf_len;
-      tr.bits_per_word = 8;
-      tr.speed_hz = t->mpi_clk;
-      tr.cs_change = 0;
-      spi_message_add_tail(&(tr), &(msg));
-      ret = spi_sync(t->dev, &(msg));
-   }
-   else {
-      ret = 0;
-      while (ret < buf_len) {
-         int r;
-         spi_message_init(&(msg));
-         memset(&(tr), 0, sizeof(tr));
-         tr.tx_buf = buf;
-         tr.len = 1;
-         tr.bits_per_word = 8;
-         tr.speed_hz = t->mpi_clk;
-         tr.cs_change = 1;
-         spi_message_add_tail(&(tr), &(msg));
-         r = spi_sync(t->dev, &(msg));
-         if (r) {
-            ret = r;
-            break;
-         }
-         ret += 1;
-         buf += 1;
-      }
-   }
-#endif // !BCMPH_NOHW
+#  endif // BCMPH_DEBUG_MPI
+   spi_message_init(&(msg));
+   memset(&(tr), 0, sizeof(tr));
+   tr.tx_buf = buf;
+   tr.len = buf_len;
+   tr.bits_per_word = 8;
+   tr.speed_hz = t->mpi_clk;
+   spi_message_add_tail(&(tr), &(msg));
+   ret = bcm_make_transfer(t, &(msg));
+# endif // !BCMPH_NOHW
 
 #else // !BCMPH_USE_SPI_DRIVER
 
-   dd_bcm_pr_debug("bcm_mpi_write(buf_len=%d)\n", (int)(buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d)\n", __func__, (int)(buf_len));
 
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    bcm_assert(buf_len <= t->dev_data->fifo_size);
 
    if (buf_len > 0) {
-#ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
       bcm_mpi_add_trace(t, MPI_WRITE, buf, buf_len);
-#endif // BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
       bcm_mpi_setup_transfer(t);
       ret = bcm_mpi_rw_buf(t, (u8 *)(buf), buf_len, true, false, NULL, 0);
    }
    else {
       ret = 0;
    }
-#endif // !BCMPH_NOHW
+# endif // !BCMPH_NOHW
 
 #endif // !BCMPH_USE_SPI_DRIVER
 
@@ -713,82 +719,49 @@ int bcm_mpi_read(bcm_mpi_t *t, __u8 *buf, __u8 buf_len, const __u8 *prepend_buf,
 
 #ifdef BCMPH_USE_SPI_DRIVER
 
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    struct spi_transfer tr0;
+   struct spi_transfer tr1;
    struct spi_message msg;
-#endif // !BCMPH_NOHW
+# endif // !BCMPH_NOHW
 
-   dd_bcm_pr_debug("bcm_mpi_read(buf_len=%d, prepend_buf_len=%d)\n", (int)(buf_len), (int)(prepend_buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d, prepend_buf_len=%d)\n", __func__, (int)(buf_len), (int)(prepend_buf_len));
 
-#ifndef BCMPH_NOHW
-#ifdef BCMPH_DEBUG_MPI
+# ifndef BCMPH_NOHW
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_WRITE, prepend_buf, prepend_buf_len);
-#endif // BCMPH_DEBUG_MPI
-   if (!t->toggle_cs) {
-      struct spi_transfer tr1;
-      spi_message_init(&(msg));
-      if (prepend_buf_len > 0) {
-         memset(&(tr0), 0, sizeof(tr0));
-         tr0.tx_buf = prepend_buf;
-         tr0.len = prepend_buf_len;
-         tr0.bits_per_word = 8;
-         tr0.speed_hz = t->mpi_clk;
-         tr0.cs_change = 0;
-         spi_message_add_tail(&(tr0), &(msg));
-      }
-      memset(&(tr1), 0, sizeof(tr1));
-      tr1.rx_buf = buf;
-      tr1.len = buf_len;
-      tr1.bits_per_word = 8;
-      tr1.speed_hz = t->mpi_clk;
-      tr1.cs_change = 0;
-      spi_message_add_tail(&(tr1), &(msg));
-      ret = spi_sync(t->dev, &(msg));
+#  endif // BCMPH_DEBUG_MPI
+   spi_message_init(&(msg));
+   if (prepend_buf_len > 0) {
+      memset(&(tr0), 0, sizeof(tr0));
+      tr0.tx_buf = prepend_buf;
+      tr0.len = prepend_buf_len;
+      tr0.bits_per_word = 8;
+      tr0.speed_hz = t->mpi_clk;
+      spi_message_add_tail(&(tr0), &(msg));
    }
-   else {
-      do { // Empty loop
-         if (prepend_buf_len > 0) {
-            ret = bcm_mpi_write(t, prepend_buf, prepend_buf_len);
-            if (ret != prepend_buf_len) {
-               break;
-            }
-         }
-         ret = 0;
-         while (ret < buf_len) {
-            int r;
-            spi_message_init(&(msg));
-            memset(&(tr0), 0, sizeof(tr0));
-            tr0.rx_buf = buf;
-            tr0.len = 1;
-            tr0.bits_per_word = 8;
-            tr0.speed_hz = t->mpi_clk;
-            tr0.cs_change = 1;
-            spi_message_add_tail(&(tr0), &(msg));
-            r = spi_sync(t->dev, &(msg));
-            if (r) {
-               ret = r;
-               break;
-            }
-            ret += 1;
-            buf += 1;
-         }
-      } while (0);
-   }
-#ifdef BCMPH_DEBUG_MPI
+   memset(&(tr1), 0, sizeof(tr1));
+   tr1.rx_buf = buf;
+   tr1.len = buf_len;
+   tr1.bits_per_word = 8;
+   tr1.speed_hz = t->mpi_clk;
+   spi_message_add_tail(&(tr1), &(msg));
+   ret = bcm_make_transfer(t, &(msg));
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_READ, buf, ret);
-#endif // BCMPH_DEBUG_MPI
-#endif // !BCMPH_NOHW
+#  endif // BCMPH_DEBUG_MPI
+# endif // !BCMPH_NOHW
 
 #else // !BCMPH_USE_SPI_DRIVER
 
-   dd_bcm_pr_debug("bcm_mpi_read(buf_len=%d, prepend_buf_len=%d)\n", (int)(buf_len), (int)(prepend_buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d, prepend_buf_len=%d)\n", __func__, (int)(buf_len), (int)(prepend_buf_len));
 
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    bcm_assert(buf_len <= t->dev_data->fifo_size);
 
-#ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_WRITE, prepend_buf, prepend_buf_len);
-#endif // BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
    bcm_mpi_setup_transfer(t);
    do { // Empty loop
       if (buf_len > 0) {
@@ -810,10 +783,10 @@ int bcm_mpi_read(bcm_mpi_t *t, __u8 *buf, __u8 buf_len, const __u8 *prepend_buf,
       }
    }
    while (0);
-#ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_READ, buf, ret);
-#endif // BCMPH_DEBUG_MPI
-#endif // !BCMPH_NOHW
+#  endif // BCMPH_DEBUG_MPI
+# endif // !BCMPH_NOHW
 
 #endif // !BCMPH_USE_SPI_DRIVER
 
@@ -826,77 +799,53 @@ int bcm_mpi_read_write(bcm_mpi_t *t, __u8 *buf, __u8 buf_len)
 
 #ifdef BCMPH_USE_SPI_DRIVER
 
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    struct spi_transfer tr;
-   struct spi_message  msg;
-#endif // !BCMPH_NOHW
+   struct spi_message msg;
+# endif // !BCMPH_NOHW
 
-   dd_bcm_pr_debug("bcm_mpi_read_write(buf_len=%d)\n", (int)(buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d)\n", __func__, (int)(buf_len));
 
-#ifndef BCMPH_NOHW
-#ifdef BCMPH_DEBUG_MPI
+# ifndef BCMPH_NOHW
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_WRITE, buf, buf_len);
-#endif // BCMPH_DEBUG_MPI
-   if (!t->toggle_cs) {
-      spi_message_init(&(msg));
-      memset(&(tr), 0, sizeof(tr));
-      tr.tx_buf = buf;
-      tr.rx_buf = buf;
-      tr.len = buf_len;
-      tr.bits_per_word = 8;
-      tr.speed_hz = t->mpi_clk;
-      tr.cs_change = 0;
-      spi_message_add_tail(&(tr), &(msg));
-      ret = spi_sync(t->dev, &(msg));
-   }
-   else {
-      ret = 0;
-      while (ret < buf_len) {
-         int r;
-         spi_message_init(&(msg));
-         memset(&(tr), 0, sizeof(tr));
-         tr.tx_buf = buf;
-         tr.rx_buf = buf;
-         tr.len = 1;
-         tr.bits_per_word = 8;
-         tr.speed_hz = t->mpi_clk;
-         tr.cs_change = 1;
-         spi_message_add_tail(&(tr), &(msg));
-         r = spi_sync(t->dev, &(msg));
-         if (r) {
-            ret = r;
-            break;
-         }
-         ret += 1;
-         buf += 1;
-      }
-   }
-#ifdef BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
+   spi_message_init(&(msg));
+   memset(&(tr), 0, sizeof(tr));
+   tr.tx_buf = buf;
+   tr.rx_buf = buf;
+   tr.len = buf_len;
+   tr.bits_per_word = 8;
+   tr.speed_hz = t->mpi_clk;
+   tr.cs_change = 0;
+   spi_message_add_tail(&(tr), &(msg));
+   ret = bcm_make_transfer(t, &(msg));
+#  ifdef BCMPH_DEBUG_MPI
    bcm_mpi_add_trace(t, MPI_READ, buf, ret);
-#endif // BCMPH_DEBUG_MPI
-#endif // !BCMPH_NOHW
+#  endif // BCMPH_DEBUG_MPI
+# endif // !BCMPH_NOHW
 
 #else // !BCMPH_USE_SPI_DRIVER
 
-   dd_bcm_pr_debug("bcm_mpi_read_write(buf_len=%d)\n", (int)(buf_len));
+   dd_bcm_pr_debug("%s(buf_len=%d)\n", __func__, (int)(buf_len));
 
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    bcm_assert(buf_len <= t->dev_data->fifo_size);
 
    if (buf_len > 0) {
-#ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
       bcm_mpi_add_trace(t, MPI_WRITE, buf, buf_len);
-#endif // BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
       bcm_mpi_setup_transfer(t);
       ret = bcm_mpi_rw_buf(t, buf, buf_len, true, true, NULL, 0);
-#ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
       bcm_mpi_add_trace(t, MPI_READ, buf, ret);
-#endif // BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
    }
    else {
       ret = 0;
    }
-#endif // !BCMPH_NOHW
+# endif // !BCMPH_NOHW
 
 #endif // !BCMPH_USE_SPI_DRIVER
 
@@ -905,26 +854,28 @@ int bcm_mpi_read_write(bcm_mpi_t *t, __u8 *buf, __u8 buf_len)
 
 int __init bcm_mpi_init(bcm_mpi_t *t, const bcm_mpi_params_t *params)
 {
-   int ret = 0;
+   int ret = -1;
 
 #ifdef BCMPH_USE_SPI_DRIVER
-
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    struct spi_master *master;
    struct spi_board_info board_info;
-#endif // !BCMPH_NOHW
-
+# endif // !BCMPH_NOHW
 #endif // !BCMPH_USE_SPI_DRIVER
 
-   bcm_pr_debug("bcm_mpi_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != params);
 
-   t->toggle_cs = params->toggle_cs;
+#ifndef BCMPH_NOHW
+   t->trx_opts.fill_byte = params->fill_byte;
+   t->trx_opts.wait_completion_with_irq = params->wait_completion_with_irq;
+   t->trx_opts.drop_cs_after_each_byte = params->drop_cs_after_each_byte;
+   t->trx_opts.cs_off_clk_cycles = params->cs_off_clk_cycles;
+#endif // !BCMPH_NOHW
 
 #ifdef BCMPH_USE_SPI_DRIVER
-
    t->mpi_clk = params->clk;
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    master = spi_busnum_to_master(params->bus_num);
    if (NULL == master) {
       bcm_pr_err("No SPI master found for bus num %d. Module bcm63xx-spi not loaded ?\n",
@@ -947,27 +898,32 @@ int __init bcm_mpi_init(bcm_mpi_t *t, const bcm_mpi_params_t *params)
       goto fail_new_dev;
    }
    put_device(&(master->dev));
+   /* Lock the bus */
+   if ((params->has_exclusive_bus_access) && (!bcm_drv_param_mpi_no_exclusive_bus_access)) {
+      spi_bus_lock(t->dev->master);
+      t->bus_is_locked = true;
+   }
 
-   bcm_mpi_enable_extra_CSs();
-#ifdef BCMPH_DEBUG_MPI
+   bcm_mpi_enable_extra_CSs(params->cs);
+# ifdef BCMPH_DEBUG_MPI
    t->trace_len = 0;
-#endif // BCMPH_DEBUG_MPI
+# endif // BCMPH_DEBUG_MPI
 
-   return (ret);
+   return (0);
 
    spi_unregister_device(t->dev);
 fail_new_dev:
    put_device(&(master->dev));
 fail_master:
-#endif // !BCMPH_NOHW
-
+# else // BCMPH_NOHW
+   ret = 0;
+# endif // BCMPH_NOHW
 #else // !BCMPH_USE_SPI_DRIVER
-
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    t->mpi_cs = params->cs;
-   t->clk_cfg = bcm_mpi_get_clk_cfg(params->clk, params->cs_off_time);
-   t->fill_byte = params->fill_byte;
-   t->wait_completion_with_irq = params->wait_completion_with_irq;
+   t->clk_cfg = bcm_mpi_get_clk_cfg(params->clk, params->cs_off_clk_cycles);
+
+   bcm_mpi_enable_extra_CSs(params->cs);
 
    if (bcm_mpi_dev_data.ref_count <= 0) {
       struct device_driver *spi_driver = driver_find(bcm63xx_spi_driver.driver.name, &platform_bus_type);
@@ -990,7 +946,7 @@ fail_master:
       bcm_assert(bcm_mpi_dev_data.ref_count > 0);
       if (params->cs > bcm_mpi_dev_data.num_chipselect) {
          dev_err(&(bcm_mpi_dev_data.pdev->dev), "%s, unsupported slave %d\n",
-            __FUNCTION__, params->cs);
+            __func__, params->cs);
          if (1 == bcm_mpi_dev_data.ref_count) {
             platform_driver_unregister(&(bcm63xx_spi_driver));
          }
@@ -1001,7 +957,9 @@ fail_master:
          t->dev_data = &(bcm_mpi_dev_data);
       }
    }
-#endif // !BCMPH_NOHW
+# else // BCMPH_NOHW
+   ret = 0;
+# endif // BCMPH_NOHW
 
 #endif // !BCMPH_USE_SPI_DRIVER
 
@@ -1010,7 +968,7 @@ fail_master:
 
 void bcm_mpi_deinit(bcm_mpi_t *t)
 {
-   bcm_pr_debug("bcm_mpi_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
 #ifdef BCMPH_DEBUG_MPI
    bcm_mpi_dump_and_reset_trace(t);
@@ -1020,6 +978,10 @@ void bcm_mpi_deinit(bcm_mpi_t *t)
 #ifdef BCMPH_USE_SPI_DRIVER
 
 #ifndef BCMPH_NOHW
+   if (t->bus_is_locked) {
+      spi_bus_unlock(t->dev->master);
+      t->bus_is_locked = false;
+   }
    spi_unregister_device(t->dev);
 #endif // !BCMPH_NOHW
    t->dev = NULL;
@@ -1036,7 +998,7 @@ void bcm_mpi_deinit(bcm_mpi_t *t)
       }
    }
    else {
-      bcm_pr_err("Illegal call of bcm_mpi_deinit()\n");
+      bcm_pr_err("Illegal call of %s()\n", __func__);
    }
 #endif // !BCMPH_NOHW
 

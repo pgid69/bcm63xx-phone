@@ -8,11 +8,7 @@
  * Copyright (c) 2011, Microsemi Corporation
  */
 
-#ifdef __KERNEL__
-#include <linux/delay.h>
-#else // !__KERNEL__
-#include <unistd.h>
-#endif // !__KERNEL__
+#include <extern/linux/delay.h>
 
 #include "vp_api_types.h"
 #include "sys_service.h"

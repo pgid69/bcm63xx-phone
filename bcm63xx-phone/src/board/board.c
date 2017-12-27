@@ -5,13 +5,14 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #include <config.h>
 
+#include <extern/linux/clk.h>
+#include <extern/linux/errno.h>
+#include <extern/linux/delay.h>
+#include <extern/linux/kernel.h>
 #ifdef __KERNEL__
-#include <linux/clk.h>
-#include <linux/errno.h>
-#include <linux/kernel.h>
-#include <linux/delay.h>
 #ifndef BCMPH_NOHW
 #include <bcm63xx_board.h>
 #include <bcm63xx_cpu.h>
@@ -38,11 +39,11 @@
 // Include after system files
 #include <compile.h>
 
-const char *driver_name = "bcm63xx-phone";
+const char *driver_name = bcm_eval_macro_1(bcm_stringify, BCMPH_MODULE_NAME);
 
 void board_set_gpio(int gpio_num, int state)
 {
-   d_bcm_pr_debug("board_set_gpio(gpio_num=0x%x, state=%d)\n", (int)(gpio_num), (int)(state));
+   d_bcm_pr_debug("%s(gpio_num=0x%x, state=%d)\n", __func__, (int)(gpio_num), (int)(state));
    if (GPIO_IS_INVALID != gpio_num) {
 #ifndef BCMPH_NOHW
       u32 val;
@@ -77,10 +78,10 @@ void board_set_gpio(int gpio_num, int state)
 #ifndef BCMPH_NOHW
 // The definition of struct clk comes from file arch/mips/bcm63xx/clk.c
 struct clk {
-	void		(*set)(struct clk *, int);
-	unsigned int	rate;
-	unsigned int	usage;
-	int		id;
+   void     (*set)(struct clk *, int);
+   unsigned int   rate;
+   unsigned int   usage;
+   int      id;
 };
 
 /*
@@ -90,7 +91,7 @@ static void pcm6368_clk_set(struct clk *clk, int enable)
 {
    u32 reg = bcm_perf_readl(PERF_CKCTL_REG);
 
-   bcm_pr_debug("pcm6368_clk_set(enable=%d)\n", (int)(enable));
+   bcm_pr_debug("%s(enable=%d)\n", __func__, (int)(enable));
 
    if (enable) {
       reg |= CKCTL_6368_PCM_EN;
@@ -103,14 +104,14 @@ static void pcm6368_clk_set(struct clk *clk, int enable)
 
 // TODO to move in arch/mips/bcm63xx/clk.c
 static struct clk pcm6368_clk = {
-	.set	= pcm6368_clk_set,
+   .set  = pcm6368_clk_set,
 };
 
 static void pcm6362_clk_set(struct clk *clk, int enable)
 {
    u32 reg = bcm_perf_readl(PERF_CKCTL_REG);
 
-   bcm_pr_debug("pcm6362_clk_set(enable=%d)\n", (int)(enable));
+   bcm_pr_debug("%s(enable=%d)\n", __func__, (int)(enable));
 
    if (enable) {
       reg |= CKCTL_6362_PCM_EN;
@@ -123,7 +124,7 @@ static void pcm6362_clk_set(struct clk *clk, int enable)
 
 // TODO to move in arch/mips/bcm63xx/clk.c
 static struct clk pcm6362_clk = {
-	.set	= pcm6362_clk_set,
+   .set  = pcm6362_clk_set,
 };
 
 static pcm_desc_t pcm6358_desc = {
@@ -260,6 +261,7 @@ static const VpProfileDataType RING_VE880_ABS100V_SE[] = { 0 , VP_PRFWZ_PROFILE_
 static const VpProfileDataType RING_VE880_ABS100V_TK[] = { 0 , VP_PRFWZ_PROFILE_NONE };
 static const VpProfileDataType RING_VE880_ABS100V_ZA[] = { 0 , VP_PRFWZ_PROFILE_NONE };
 
+#ifndef BCMPH_NOHW
 static zarlink_device_parameters_t hw553_le88221_dev_params = {
    .type = VP_DEV_880_SERIES,
    .profiles = {
@@ -291,13 +293,16 @@ static zarlink_device_parameters_t hw553_le88221_dev_params = {
    },
    .modes = {
       .on_hook_idle = VP_LINE_STANDBY,
+      .on_hook_idle_polrev = VP_LINE_STANDBY_POLREV,
       .on_hook_ringing = VP_LINE_RINGING,
-      .ring_cadence = {
-         .on_time = 2000,
-         .off_time = 4000,
-      },
+      .on_hook_ringing_polrev = VP_LINE_RINGING_POLREV,
+      .on_hook_talking = VP_LINE_OHT,
+      .on_hook_talking_polrev = VP_LINE_OHT_POLREV,
       .off_hook_idle = VP_LINE_ACTIVE,
+      .off_hook_idle_polrev = VP_LINE_ACTIVE_POLREV,
       .off_hook_talking = VP_LINE_TALK,
+      .off_hook_talking_polrev = VP_LINE_TALK_POLREV,
+      .disconnect = VP_LINE_DISCONNECT,
    },
    .tones = {
       .waiting_dial = {
@@ -308,7 +313,7 @@ static zarlink_device_parameters_t hw553_le88221_dev_params = {
       .invalid = {
          .profile = TONE_BUSY,
          .on_time = 250,
-         .off_time = 200,
+         .off_time = 250,
       },
       .ringback = {
          .profile = TONE_RINGBACK,
@@ -356,7 +361,8 @@ static phone_desc_t hw553_phone_desc = {
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
-            .bus_num = 0,
+            .bus_num = BCM63XX_SPI_BUS_NUM,
+            .has_exclusive_bus_access = true,
 #endif // BCMPH_USE_SPI_DRIVER
             .cs = 2,
             /* Le88221 supports a MPI CLK period of 122 ns min (8.196721 MHz)
@@ -367,14 +373,12 @@ static phone_desc_t hw553_phone_desc = {
              is 3.9075 CLK period)
             */
             .clk = 1563000,
-            .toggle_cs = true,
-#ifndef BCMPH_USE_SPI_DRIVER
-            /* Le88221 requires a CS off time of 2500 ns min between each byte :
-             if CLK is 1.563 MHz it means 4 periods */
-            .cs_off_time = 4,
+            .drop_cs_after_each_byte = true,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88221 */
-#endif // !BCMPH_USE_SPI_DRIVER
+            /* Le88221 requires a CS off time of 2500 ns min between each byte :
+             if CLK is 1.563 MHz it means 4 cycles */
+            .cs_off_clk_cycles = 4,
          },
          .line_count = 2,
          .lines = {
@@ -399,6 +403,7 @@ static phone_desc_t hw553_phone_desc = {
       },
    },
 };
+#endif // !BCMPH_NOHW
 
 static zarlink_device_parameters_t hw556_le88266_dev_params = {
    .type = VP_DEV_880_SERIES,
@@ -431,13 +436,16 @@ static zarlink_device_parameters_t hw556_le88266_dev_params = {
    },
    .modes = {
       .on_hook_idle = VP_LINE_STANDBY,
+      .on_hook_idle_polrev = VP_LINE_STANDBY_POLREV,
       .on_hook_ringing = VP_LINE_RINGING,
-      .ring_cadence = {
-         .on_time = 2000,
-         .off_time = 4000,
-      },
+      .on_hook_ringing_polrev = VP_LINE_RINGING_POLREV,
+      .on_hook_talking = VP_LINE_OHT,
+      .on_hook_talking_polrev = VP_LINE_OHT_POLREV,
       .off_hook_idle = VP_LINE_ACTIVE,
+      .off_hook_idle_polrev = VP_LINE_ACTIVE_POLREV,
       .off_hook_talking = VP_LINE_TALK,
+      .off_hook_talking_polrev = VP_LINE_TALK_POLREV,
+      .disconnect = VP_LINE_DISCONNECT,
    },
    .tones = {
       .waiting_dial = {
@@ -448,7 +456,7 @@ static zarlink_device_parameters_t hw556_le88266_dev_params = {
       .invalid = {
          .profile = TONE_BUSY,
          .on_time = 250,
-         .off_time = 200,
+         .off_time = 250,
       },
       .ringback = {
          .profile = TONE_RINGBACK,
@@ -493,7 +501,8 @@ static phone_desc_t hw556_phone_desc = {
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
-            .bus_num = 0,
+            .bus_num = BCM63XX_SPI_BUS_NUM,
+            .has_exclusive_bus_access = true,
 #endif // BCMPH_USE_SPI_DRIVER
             .cs = 2,
             /* Le88266 supports a MPI CLK period of 122 ns min (8.196721 MHz)
@@ -504,14 +513,12 @@ static phone_desc_t hw556_phone_desc = {
              is 3.9075 CLK period)
             */
             .clk = 1563000,
-            .toggle_cs = true,
-#ifndef BCMPH_USE_SPI_DRIVER
-            /* Le88266 requires a CS off time of 2500 ns min between each byte :
-             if CLK is 1.563 MHz it means 4 periods */
-            .cs_off_time = 4,
+            .drop_cs_after_each_byte = true,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88266 */
-#endif // !BCMPH_USE_SPI_DRIVER
+            /* Le88266 requires a CS off time of 2500 ns min between each byte :
+             if CLK is 1.563 MHz it means 4 cycles */
+            .cs_off_clk_cycles = 4,
          },
          .line_count = 2,
          .lines = {
@@ -537,6 +544,7 @@ static phone_desc_t hw556_phone_desc = {
    },
 };
 
+#ifndef BCMPH_NOHW
 static zarlink_device_parameters_t a226m_le88266_dev_params = {
    .type = VP_DEV_880_SERIES,
    .profiles = {
@@ -568,13 +576,16 @@ static zarlink_device_parameters_t a226m_le88266_dev_params = {
    },
    .modes = {
       .on_hook_idle = VP_LINE_STANDBY,
+      .on_hook_idle_polrev = VP_LINE_STANDBY_POLREV,
       .on_hook_ringing = VP_LINE_RINGING,
-      .ring_cadence = {
-         .on_time = 2000,
-         .off_time = 4000,
-      },
+      .on_hook_ringing_polrev = VP_LINE_RINGING_POLREV,
+      .on_hook_talking = VP_LINE_OHT,
+      .on_hook_talking_polrev = VP_LINE_OHT_POLREV,
       .off_hook_idle = VP_LINE_ACTIVE,
+      .off_hook_idle_polrev = VP_LINE_ACTIVE_POLREV,
       .off_hook_talking = VP_LINE_TALK,
+      .off_hook_talking_polrev = VP_LINE_TALK_POLREV,
+      .disconnect = VP_LINE_DISCONNECT,
    },
    .tones = {
       .waiting_dial = {
@@ -585,7 +596,7 @@ static zarlink_device_parameters_t a226m_le88266_dev_params = {
       .invalid = {
          .profile = TONE_BUSY,
          .on_time = 250,
-         .off_time = 200,
+         .off_time = 250,
       },
       .ringback = {
          .profile = TONE_RINGBACK,
@@ -634,7 +645,8 @@ static phone_desc_t a226m_phone_desc = {
          .reset_gpio = 24 | GPIO_IS_ACTIVE_LOW,
          .mpi_params = {
 #ifdef BCMPH_USE_SPI_DRIVER
-            .bus_num = 0,
+            .bus_num = BCM63XX_SPI_BUS_NUM,
+            .has_exclusive_bus_access = true,
 #endif // BCMPH_USE_SPI_DRIVER
             .cs = 2,
             /* Le88266 supports a MPI CLK period of 122 ns min (8.196721 MHz)
@@ -645,14 +657,12 @@ static phone_desc_t a226m_phone_desc = {
              is 3.9075 CLK period)
             */
             .clk = 1563000,
-            .toggle_cs = true,
-#ifndef BCMPH_USE_SPI_DRIVER
-            /* Le88266 requires a CS off time of 2500 ns min between each byte :
-             if CLK is 1.563 MHz it means 4 periods */
-            .cs_off_time = 4,
+            .drop_cs_after_each_byte = true,
             .wait_completion_with_irq = false,
             .fill_byte = 0x06, /* NOP operation for Le88266 */
-#endif // !BCMPH_USE_SPI_DRIVER
+            /* Le88266 requires a CS off time of 2500 ns min between each byte :
+             if CLK is 1.563 MHz it means 4 cycles */
+            .cs_off_clk_cycles = 4,
          },
          .line_count = 2,
          .lines = {
@@ -677,6 +687,7 @@ static phone_desc_t a226m_phone_desc = {
       },
    },
 };
+#endif // !BCMPH_NOHW
 
 #ifdef BCMPH_NOHW
 static cpu_desc_t cpu_generic_desc = {
@@ -701,9 +712,11 @@ static const board_desc_t *board_desc = NULL; // Filled at runtime
 
 int __init board_init(void)
 {
-   int ret = 0;
+#ifndef BCMPH_NOHW
+   int ret = -1;
+#endif // !BCMPH_NOHW
 
-   bcm_pr_debug("board_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
 #ifndef BCMPH_NOHW
    if (BCMCPU_IS_6358()) {
@@ -744,7 +757,7 @@ int __init board_init(void)
       goto fail_cpu;
    }
 
-   return (ret);
+   return (0);
 
 fail_board:
    // Free the clock
@@ -752,23 +765,24 @@ fail_board:
    pcm6358_desc.clk = NULL;
 fail_clk:
 fail_cpu:
+   return (ret);
 #else // BCMPH_NOHW
    board_desc = &(board_generic_desc);
    bcm_pr_info("Board is %s\n", board_desc->name);
+   return (0);
 #endif // BCMPH_NOHW
-   return (ret);
 }
 
 const board_desc_t *board_get_desc(void)
 {
-   bcm_pr_debug("board_get_desc()\n");
+   bcm_pr_debug("%s()\n", __func__);
    return (board_desc);
 }
 
 void board_deinit(void)
 {
    // Nothing to do right now
-   bcm_pr_debug("board_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
 
 #ifndef BCMPH_NOHW
    // Free the clock

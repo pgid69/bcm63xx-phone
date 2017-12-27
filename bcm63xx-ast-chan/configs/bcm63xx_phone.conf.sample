@@ -5,11 +5,9 @@
 
 ; Global parameters
 [interfaces]
-;
 ; Number of FXS lines
 ; Valid value must be in the range [1, 2]
 lines = 2
-;
 ; Country : valid value is one of :
 ; etsi, gr57, australia, austria, belgium, brazil, bulgaria, canada,
 ; china, denmark, finland, france, germany, great_britain, greece,
@@ -18,6 +16,12 @@ lines = 2
 ; south_africa, spain, sweden, switzerland, taiwan, turkey,
 ; united_states
 country = france
+; Zone used to determine ring cadence and tones for busy line...
+; See Asterisk config file 'indications.conf' for valid values and
+; definitions of ring cadences and tones.
+; If this parameter is omitted value is deduced from parameter country
+; if possible
+zone = fr
 
 ; Specific parameters of the first line
 [line1]
@@ -25,13 +29,17 @@ enable = 1
 ; Codecs that can be used for this line.
 ; This is a list of comma separated values.
 ; Valid values are : ulaw, alaw, slin and slin16.
-; slin16 is not handled by all devices.
-; Order is important : the preferred codec must be the first, followed by the
-; second preferred...
-; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or slin is
-; required.
-; If parameter detect_dtmf is before_connection and/or connected, codec slin16
-; can't be used.
+; Beware that slin16 is not handled by all devices.
+; Order is important : the preferred codec must be the first, followed
+; by the second preferred...
+; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or
+; slin is required.
+; If parameter detect_dtmf is before_connection and/or connected, codec
+; slin16 can't be used.
+; At least slin, ulaw or alaw is required to have caller ID transmitted
+; to the phone
+; If echo cancellation is enabled, slin is required and will be the only
+; codec used
 codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
 context = bcmph-line-1
@@ -50,9 +58,10 @@ search_extension_trigger = #
 ; extension 's'
 dialing_timeout_1st_digit = 5000
 ; If monitor_dialing = 1, if a digit is dialed and it's not the value of
-; the search_extension_trigger parameter, the channel waits the following
-; timeout (in milliseconds) before searching if all the digits dialed form a
-; valid extension. If no extension is found, the channel waits for another digit.
+; the search_extension_trigger parameter, the channel waits the
+; following timeout (in milliseconds) before searching if all the digits
+; dialed form a valid extension. If no extension is found, the channel
+; waits for another digit.
 dialing_timeout = 3000
 ; Activate DTMF detection.
 ; This is a list of comma separated values.
@@ -61,11 +70,32 @@ dialing_timeout = 3000
 ; DTMF detection is possible with codecs ulaw, alaw and slin,
 ; but not slin16 (see parameter codecs)
 detect_dtmf = dialing
-; This sets the Caller Id string and number for calls originating on
+; This sets the Caller ID string and number for calls originating on
 ; this line.
 caller_id = "line1" <00-00-00-01>
 ; Default Music on Hold class to use when this channel is placed on hold
 moh_interpret = default
+; When transmitting Caller ID to phone, type of signalling in use.
+; Valid values are :
+; none : do not send Caller ID to phone (default).
+; bell : bell202 as used in US (default)
+; v23 : v23 as used in the UK
+; dtmf : DTMF as used in Denmark, Sweden and Netherlands
+; Note that Caller ID can be transmitted to the phone only if codec
+; slin, ulaw or alaw is supported
+cid_signalling = none
+; What signals to the phone the start of transmission of caller ID
+; ring : a normal ring signals the start (default)
+; ring_pulse : a very short ring signal the start
+; polarity : polarity reversal signals the start
+; dtmf : a DTMF signals the start
+; polarity_and_dtmf : polarity reversal followed by a DTMF signals the start
+cid_start = ring
+: The length of the oslec echo canceller, in samples.
+; Value must be 0 or a power of two in the range [32, 1024]
+; If > 0, enable oslec echo canceller. Codec slin must be supported and
+; is the only one that will be used
+echo_cancel_tap_length = 0
 
 ; Specific parameters of the second line
 [line2]
@@ -73,16 +103,20 @@ enable = 0
 ; Codecs that can be used for this line.
 ; This is a list of comma separated values.
 ; Valid values are : ulaw, alaw, slin and slin16.
-; slin16 is not handled by all devices.
-; Order is important : the preferred codec must be the first, followed by the
-; second preferred...
-; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or slin is
-; required.
-; If parameter detect_dtmf is before_connection and/or connected, codec slin16
-; can't be used.
+; Beware that slin16 is not handled by all devices.
+; Order is important : the preferred codec must be the first, followed
+; by the second preferred...
+; If parameter detect_dtmf is not empty, at least codec ulaw, alaw or
+; slin is required.
+; If parameter detect_dtmf is before_connection and/or connected, codec
+; slin16 can't be used.
+; At least slin, ulaw or alaw is required to have caller ID transmitted
+; to the phone
+; If echo cancellation is enabled, slin is required and will be the only
+; codec used
 codecs = ulaw, alaw, slin
 ; Context used for call emitted with this line
-context = bcmph-line-2
+context = bcmph-line-1
 ; If 1, the channel reads digits then start PBX with
 ; the dialed extension
 ; If 0, starts PBX immediately when phone goes off hook
@@ -98,20 +132,41 @@ search_extension_trigger = #
 ; extension 's'
 dialing_timeout_1st_digit = 5000
 ; If monitor_dialing = 1, if a digit is dialed and it's not the value of
-; the search_extension_trigger parameter, the channel waits the following
-; timeout (in milliseconds) before searching if all the digits dialed form a
-; valid extension. If no extension is found, the channel waits for another digit.
+; the search_extension_trigger parameter, the channel waits the
+; following timeout (in milliseconds) before searching if all the digits
+; dialed form a valid extension. If no extension is found, the channel
+; waits for another digit.
 dialing_timeout = 3000
 ; Activate DTMF detection.
 ; This is a list of comma separated values.
 ; Valid values are : dialing, before_connection, connected
 ; dialing is valid if monitor_dialing == 1
-; DTMF detection is possible with codecs alaw, ulaw and slin,
+; DTMF detection is possible with codecs ulaw, alaw and slin,
 ; but not slin16 (see parameter codecs)
 detect_dtmf = dialing
-; This sets the Caller Id string and number for calls originating on
+; This sets the Caller ID string and number for calls originating on
 ; this line.
-caller_id = "line2" <00-00-00-02>
+caller_id = "line1" <00-00-00-01>
 ; Default Music on Hold class to use when this channel is placed on hold
 moh_interpret = default
-
+; When transmitting Caller ID to phone, type of signalling in use.
+; Valid values are :
+; none : do not send Caller ID to phone (default).
+; bell : bell202 as used in US (default)
+; v23 : v23 as used in the UK
+; dtmf : DTMF as used in Denmark, Sweden and Netherlands
+; Note that Caller ID can be transmitted to the phone only if codec
+; slin, ulaw or alaw is supported
+cid_signalling = none
+; What signals to the phone the start of transmission of caller ID
+; ring : a normal ring signals the start (default)
+; ring_pulse : a very short ring signal the start
+; polarity : polarity reversal signals the start
+; dtmf : a DTMF signals the start
+; polarity_and_dtmf : polarity reversal followed by a DTMF signals the start
+cid_start = ring
+: The length of the oslec echo canceller, in samples.
+; Value must be 0 or a power of two in the range [32, 1024]
+; If > 0, enable oslec echo canceller. Codec slin must be supported and
+; is the only one that will be used
+echo_cancel_tap_length = 0

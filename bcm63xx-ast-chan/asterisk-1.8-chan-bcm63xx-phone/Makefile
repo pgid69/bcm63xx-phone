@@ -40,16 +40,17 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)/obj
 endef
 
-define Build/Configure
-endef
+TARGET_CFLAGS += $(TARGET_CFLAGS) -DBCMPH_EXPORT_DEV_FILE \
+	-DBCMPH_MODULE_NAME=chan_bcm63xx_phone -DBCMPH_DEBUG \
+	-DAST_VERSION=18 -DLOW_MEMORY -D_FORTIFY_SOURCE=2 \
+	-I$(KERNEL_BUILD_DIR)/bcm63xx-phone/inc \
+	-I$(STAGING_DIR)/usr/include/asterisk-1.8/include \
+	-Wall -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
+	-fPIC -pthread
 
 define Build/Compile
 	rm -f $(PKG_BUILD_DIR)/obj/* $(PKG_BUILD_DIR)/*.so
-	$(TARGET_CC) $(TARGET_CFLAGS) -DBCMPH_DEBUG -DAST_VERSION=18 -DLOW_MEMORY -D_FORTIFY_SOURCE=2\
-		-I$(BUILD_DIR)/bcm63xx-phone/inc \
-		-I$(STAGING_DIR)/usr/include/asterisk-1.8/include \
-		-Wall -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
-		-fPIC -pthread \
+	$(TARGET_CC) $(TARGET_CFLAGS) \
 		-c $(PKG_BUILD_DIR)/src/chan_bcm63xx_phone.c \
 		-o $(PKG_BUILD_DIR)/obj/chan_bcm63xx_phone.o
 	$(TARGET_CC) $(TARGET_LDFLAGS) -shared -fPIC -pthread \

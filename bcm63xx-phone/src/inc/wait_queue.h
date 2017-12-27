@@ -5,17 +5,15 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __WAIT_QUEUE_H__
 #define __WAIT_QUEUE_H__
 
 #include "config.h"
 
-#ifdef __KERNEL__
-#include <linux/sched.h>
-#include <linux/wait.h>
-#else // !__KERNEL__
-#include <fake_kernel.h>
-#endif // !__KERNEL__
+#include <extern/linux/atomic.h>
+#include <extern/linux/sched.h>
+#include <extern/linux/wait.h>
 
 #include <bcm63xx_log.h>
 #include <mutex.h>
@@ -23,32 +21,32 @@
 typedef struct {
    // Kernel wait queue used to block processes
    wait_queue_head_t wq;
-   // Counter that tells processes blocked in wait queue that something has changed
+   // Counter that tells processes blocked in wait queue that something
+   // has changed
    atomic_t counter;
 } bcm_wait_queue_t;
 
 static inline void bcm_wait_queue_init(bcm_wait_queue_t *t)
 {
-   bcm_pr_debug("bcm_wait_queue_init()\n");
+   bcm_pr_debug("%s()\n", __func__);
    init_waitqueue_head(&(t->wq));
    atomic_set(&(t->counter), 0);
 }
 
 static inline void bcm_wait_queue_deinit(bcm_wait_queue_t *t)
 {
-   bcm_pr_debug("bcm_wait_queue_deinit()\n");
+   bcm_pr_debug("%s()\n", __func__);
+   deinit_waitqueue_head(&(t->wq));
 }
 
 static inline void bcm_wait_queue_wake_up(bcm_wait_queue_t *t)
 {
-   dd_bcm_pr_debug("bcm_wait_queue_wake_up()\n");
-   if (waitqueue_active(&(t->wq))) {
-      atomic_inc(&(t->counter));
-      wake_up_interruptible_all(&(t->wq));
-   }
+   dd_bcm_pr_debug("%s()\n", __func__);
+   atomic_inc(&(t->counter));
+   wake_up_interruptible_all(&(t->wq));
 }
 
-static inline int bcm_wait_queue_get_counter(const bcm_wait_queue_t *t)
+static inline int bcm_wait_queue_get_counter(bcm_wait_queue_t *t)
 {
    return (atomic_read(&(t->counter)));
 }

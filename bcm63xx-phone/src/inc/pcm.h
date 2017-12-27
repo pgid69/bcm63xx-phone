@@ -5,44 +5,66 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __PCM_H__
 #define __PCM_H__
 
 #include "config.h"
 
+#include <extern/linux/bitops.h>
+#include <extern/linux/dma-mapping.h>
 #ifdef __KERNEL__
-#include <linux/bitops.h>
-#include <linux/dma-mapping.h>
-#include <linux/interrupt.h>
+# ifdef BCMPH_ENABLE_PCM_INTERRUPTS
+#  include <linux/interrupt.h>
+# endif // BCMPH_ENABLE_PCM_INTERRUPTS
 #endif // __KERNEL__
 
 #include "bcm63xx_phone.h"
 #include "bcm63xx_ring_buf.h"
 #include "board.h"
+#ifdef BCMPH_NOHW
+#include "timer.h"
+#endif // BCMPH_NOHW
 
-/* Number of PCM channels.
+/*
+ Number of PCM channels.
  From what i understand a PCM channel is used to read or write
- a single timeslot of a frame of the PCM bus.
+ a single timeslot of a frame of the PCM bus in 8 bits mode or 2
+ consecutive timeslots of a frame of the PCM bus in 16 bits mode.
  However registers of the PCM module does not have an array of 8 entries
  containing a timeslot number, but an array of 128 entries containing a PCM
- channel number. Perhaps it's more efficient from the hardware perspective. */
+ channel number. Perhaps it's more efficient from the hardware perspective.
+*/
 #define BCMPH_PCM_MAX_CHANNELS   8
-/* Width in bytes of a PCM channel : depending of the codec used it contains
- 2 (BCMPH_CODEC_LINEAR16 or BCMPH_CODEC_LINEAR) or
- 4 samples (BCMPH_CODEC_ALAW, BCMPH_CODEC_ALAW16, BCMPH_CODEC_ULAW or
- BCMPH_CODEC_ULAW16 if PCM set in 8 bits mode) */
+/*
+ Width in bytes of a PCM channel.
+ If PCM is set to 8 bits, it contains 4 samples of one byte from the
+ timeslot TS associated with the PCM channel. The PCM channel is filled
+ in (1 / 8 kHz) * 4 = 0.5 ms
+ If PCM is set to 16 bits, it contains 2 samples of two bytes from the
+ timeslots TS and TS + 1.
+ The PCM channel is filled in (1 / 8 kHz) * 4 = 0.25 ms.
+*/
 #define BCMPH_PCM_CHANNEL_WIDTH  4
 
-/* The number of bytes of a frame transferred to or from the PCM module by DMA
+/*
+ The number of bytes of a frame transferred to or from the PCM module by DMA
  Here a frame does not refer to the frame of the PCM bus (which is composed of
  128 timeslots of 8 bits if PCM bus is clocked at 8192 MHz and signal FS is
  clocked at 8 kHz) but to the frame transferred to or from the PCM module by DMA
  (which is composed of BCMPH_PCM_MAX_CHANNELS PCM channels of
-  BCMPH_PCM_CHANNEL_WIDTH bytes wide) */
-#define PCM_MAX_FRAME_SIZE (BCMPH_PCM_MAX_CHANNELS * BCMPH_PCM_CHANNEL_WIDTH)
+ BCMPH_PCM_CHANNEL_WIDTH bytes wide)
+*/
+#define BCMPH_PCM_MAX_FRAME_SIZE (BCMPH_PCM_MAX_CHANNELS * BCMPH_PCM_CHANNEL_WIDTH)
+
+/* The maximum number of frames we can have in RX data buffer */
+#define BCMPH_PCM_MAX_FRAME_RX_BUFFER 16
+/* The maximum number of frames we can have in TX data buffer */
+#define BCMPH_PCM_MAX_FRAME_TX_BUFFER 16
 
 #define BIT_NR_RX_DESC_RETURNED 0
 #define BIT_NR_TX_DESC_EMPTY 1
+
 
 /*
  * rx/tx dma descriptor
@@ -182,7 +204,7 @@ typedef struct pcm {
    void (*tx_desc_empty_cb)(struct pcm *t);
 
 #ifdef BCMPH_NOHW
-   unsigned long prev_jiffies;
+   bcm_period_t timestamp;
 #endif // BCMPH_NOHW
 
    /* bit fields */
@@ -238,7 +260,7 @@ extern void pcm_configure_channels(pcm_t *t,
 static inline bool pcm_timeslot_is_16bits(const pcm_t *t)
 {
    bool ret = t->timeslot_is_16bits;
-   dd_bcm_pr_debug("pcm_timeslot_is_16bits() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -260,7 +282,7 @@ extern void pcm_read_stats(const pcm_t *t, bcm_phone_pcm_stats_t *regs);
 static inline size_t pcm_get_max_timeslots(const pcm_t *t)
 {
    size_t ret = t->board_desc->phone_desc->clk_rate / 64;
-   dd_bcm_pr_debug("pcm_get_max_frame_size() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -269,43 +291,45 @@ static inline size_t pcm_get_max_timeslots(const pcm_t *t)
 static inline size_t pcm_get_frame_size(const pcm_t *t)
 {
    size_t ret = t->frame_size;
-   dd_bcm_pr_debug("pcm_get_frame_size() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 static inline bool pcm_is_started(const pcm_t *t)
 {
    bool ret = t->is_started;
-   dd_bcm_pr_debug("pcm_is_started() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
 
 static inline bool pcm_dma_is_started(const pcm_t *t)
 {
    bool ret = t->dma_is_started;
-   dd_bcm_pr_debug("pcm_dma_is_started() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
 
+#ifdef BCMPH_ENABLE_PCM_INTERRUPTS
 static inline int pcm_has_rx_buffer_filled(pcm_t *t)
 {
    int ret = test_bit(BIT_NR_RX_DESC_RETURNED, &(t->bits));
-   dd_bcm_pr_debug("pcm_has_rx_buffer_filled() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
+#endif // BCMPH_ENABLE_PCM_INTERRUPTS
 
 // Returns size of RX data buffer in bytes
 static inline size_t pcm_get_max_phys_size_rx_buffer(pcm_t *t)
 {
    size_t ret = t->rx_data_buffer_rounded_size;
-   dd_bcm_pr_debug("pcm_get_max_phys_size_rx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 static inline size_t pcm_get_max_frame_rx_buffer(pcm_t *t)
 {
    size_t ret = (pcm_get_max_phys_size_rx_buffer(t) / t->max_frame_size);
-   dd_bcm_pr_debug("pcm_get_max_frame_rx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -314,7 +338,7 @@ static inline size_t pcm_get_max_frame_rx_buffer(pcm_t *t)
 static inline size_t pcm_get_max_log_size_rx_buffer(pcm_t *t)
 {
    size_t ret = pcm_get_max_frame_rx_buffer(t) * pcm_get_frame_size(t);
-   dd_bcm_pr_debug("pcm_get_max_log_size_rx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -326,7 +350,7 @@ static inline unsigned long pcm_get_time_to_transmit_frame(pcm_t *t)
    if (pcm_timeslot_is_16bits(t)) {
       ret /= 2;
    }
-   dd_bcm_pr_debug("pcm_get_time_to_transmit_frame() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -334,8 +358,13 @@ static inline unsigned long pcm_get_time_to_transmit_frame(pcm_t *t)
 // Returns time in microseconds used by PCM module to fill one RX buffer
 static inline unsigned long pcm_get_time_to_receive_rx_buffer(pcm_t *t)
 {
-   unsigned long ret = pcm_get_time_to_transmit_frame(t) * pcm_get_max_frame_rx_buffer(t);
-   dd_bcm_pr_debug("pcm_get_time_to_receive_rx_buffer() -> %lu\n", (unsigned long)(ret));
+   unsigned long ret;
+#ifdef __KERNEL__
+   ret = pcm_get_time_to_transmit_frame(t) * pcm_get_max_frame_rx_buffer(t);
+#else
+   ret = t->board_desc->phone_desc->tick_period * 2000;
+#endif
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -346,37 +375,47 @@ extern size_t pcm_rx_reclaim(pcm_t *t,
    void (*receive_cb)(pcm_t *t, const __u8 *data, size_t data_len),
    size_t buffer_count, size_t max_frame_count);
 
+extern size_t pcm_receive_one_buffer(pcm_t *t,
+   void (*receive_cb)(pcm_t *t, const __u8 *data, size_t data_len));
+
 extern size_t pcm_receive(pcm_t *t,
    void (*receive_cb)(pcm_t *t, const __u8 *data, size_t data_len),
    size_t frame_count);
 
+#ifdef BCMPH_ENABLE_PCM_INTERRUPTS
 static inline int pcm_has_tx_buffer_empty(pcm_t *t)
 {
    int ret = test_bit(BIT_NR_TX_DESC_EMPTY, &(t->bits));
-   dd_bcm_pr_debug("pcm_has_tx_buffer_empty() -> %d\n", (int)(ret));
+   dd_bcm_pr_debug("%s() -> %d\n", __func__, (int)(ret));
    return (ret);
 }
+#endif // BCMPH_ENABLE_PCM_INTERRUPTS
 
 // Returns size of TX data buffer in bytes
 static inline size_t pcm_get_phys_size_tx_buffer(pcm_t *t)
 {
    size_t ret = t->tx_data_buffer_rounded_size;
-   dd_bcm_pr_debug("pcm_get_phys_size_tx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 static inline size_t pcm_get_max_frame_tx_buffer(pcm_t *t)
 {
    size_t ret = (pcm_get_phys_size_tx_buffer(t) / t->max_frame_size);
-   dd_bcm_pr_debug("pcm_get_max_frame_tx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 // Returns time in microseconds used by PCM module to send one TX buffer
 static inline unsigned long pcm_get_time_to_send_tx_buffer(pcm_t *t)
 {
-   unsigned long ret = pcm_get_time_to_transmit_frame(t) * pcm_get_max_frame_tx_buffer(t);
-   dd_bcm_pr_debug("pcm_get_time_to_send_tx_buffer() -> %lu\n", (unsigned long)(ret));
+   unsigned long ret;
+#ifdef __KERNEL__
+   ret = pcm_get_time_to_transmit_frame(t) * pcm_get_max_frame_tx_buffer(t);
+#else
+   ret = t->board_desc->phone_desc->tick_period * 2000;
+#endif
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
@@ -385,14 +424,27 @@ static inline unsigned long pcm_get_time_to_send_tx_buffer(pcm_t *t)
 static inline size_t pcm_get_log_size_tx_buffer(pcm_t *t)
 {
    size_t ret = pcm_get_max_frame_tx_buffer(t) * pcm_get_frame_size(t);
-   dd_bcm_pr_debug("pcm_get_log_size_tx_buffer() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 
 extern size_t pcm_tx_reclaim(pcm_t *t, size_t buffer_count);
 
+static inline bool pcm_can_send_one_buffer(pcm_t *t)
+{
+   // we reclaim at least 2 buffers so that if it succeeds, the
+   // condition (t->tx_desc_cnt_empty <= 0)
+   // will be false after sending one buffer
+   pcm_tx_reclaim(t, 2);
+
+   return ((t->tx_desc_cnt_empty <= 0) ? false : true);
+}
+
+extern size_t pcm_send_one_buffer(pcm_t *t,
+   void (*send_cb)(pcm_t *t, __u8 *data, size_t data_len));
+
 extern size_t pcm_send(pcm_t *t,
-   bool (*send_cb)(pcm_t *t, __u8 *data, size_t data_len),
+   void (*send_cb)(pcm_t *t, __u8 *data, size_t data_len),
    size_t frame_count);
 
 // Returns number of TX buffers currently owned by DMA
@@ -402,7 +454,7 @@ static inline size_t pcm_get_cnt_tx_buffer_really_owned(pcm_t *t)
 
    pcm_tx_reclaim(t, t->tx_desc_cnt_owned);
    ret = t->tx_desc_cnt_owned;
-   dd_bcm_pr_debug("pcm_get_cnt_tx_buffer_really_owned() -> %lu\n", (unsigned long)(ret));
+   dd_bcm_pr_debug("%s() -> %lu\n", __func__, (unsigned long)(ret));
    return (ret);
 }
 

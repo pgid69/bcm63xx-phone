@@ -5,42 +5,17 @@
  * This is free software, licensed under the GNU General Public License v2.
  * See /LICENSE for more information.
  */
+
 #ifndef __BCM63XX_PHONE_H__
 #define __BCM63XX_PHONE_H__
 
+#ifdef BCMPH_EXPORT_DEV_FILE
 #include <linux/ioctl.h>
+#endif /* BCMPH_EXPORT_DEV_FILE */
 #include <linux/types.h>
 
 #include "bcm63xx_line_state.h"
 #include "bcm63xx_ring_buf.h"
-
-/*
-** The following will generate a list of countries as follows:
-**
-**        enum
-**        {
-**           BCMPH_COUNTRY_DE,
-**           BCMPH_COUNTRY_JP,
-**           BCMPH_COUNTRY_SE,
-**           ...
-**        } bcmph_country_t;
-*/
-#define COUNTRY_ARCHIVE_MAKE_NAME( country )    BCMPH_COUNTRY_##country,
-
-typedef enum {
-   #include <countryArchive.h>
-
-   BCMPH_COUNTRY_MAX
-
-} bcmph_country_t;
-
-/* Magic number */
-#define BCMPH_IOCTL_MAGIC 'E'
-
-typedef struct {
-   __u8 major;
-   __u8 minor;
-} bcm_phone_drv_ver_t;
 
 typedef struct {
    __u32 ctlr;
@@ -95,6 +70,31 @@ typedef struct {
 #endif /* !BCMPH_TEST_PCM */
 } bcm_phone_pcm_stats_t;
 
+typedef struct {
+   __u8 major;
+   __u8 minor;
+} bcm_phone_drv_ver_t;
+
+/*
+** The following will generate a list of countries as follows:
+**
+**        enum
+**        {
+**           BCMPH_COUNTRY_DE,
+**           BCMPH_COUNTRY_JP,
+**           BCMPH_COUNTRY_SE,
+**           ...
+**        } bcmph_country_t;
+*/
+#define COUNTRY_ARCHIVE_MAKE_NAME( country )    BCMPH_COUNTRY_##country,
+
+typedef enum {
+   #include <countryArchive.h>
+
+   BCMPH_COUNTRY_MAX
+
+} bcmph_country_t;
+
 /* Maximum numbers of lines : 2 seems to be a good value since routers
  with more FXS ports are uncommon */
 #define BCMPH_MAX_LINES 2
@@ -104,6 +104,13 @@ typedef struct {
    __u8 enable;
    /* The codec to use for this line */
    bcm_phone_codec_t codec;
+   /*
+    If we use an echo canceller for the line, must be a power of two
+    in the range [32, 1024]
+   */
+#ifndef BCMPH_DAHDI_DRIVER
+   __u16 echo_cancel_tap_length;
+#endif /* !BCMPH_DAHDI_DRIVER */
 } bcm_phone_line_params_t;
 
 typedef struct {
@@ -126,45 +133,13 @@ typedef struct {
 /*
  The minimum size of the RX an TX ring buffer.
  We choose a size allowing reception of 30 msecs of BCMPH_CODEC_LINEAR16
- encoded data (30 msecs is the maximum frame size of all the codecs
- listed here : http://www.en.voipforo.com/codec/codecs.php)
+ encoded data sampled at 8 kHz (30 msecs is the maximum frame size of
+ all the codecs listed here :
+ http://www.en.voipforo.com/codec/codecs.php)
  */
-#define BCMPH_MIN_SIZE_RING_BUFFER (8 * 4 * 30) /* in bytes */
-
-/* Describe location of ring buffers in mmapped region (location changes after
- call to BCMPH_IOCTL_START and BCMPH_IOCTL_START_MM */
-typedef struct {
-   struct {
-      /*
-       Offset and size in the region where are the description of RX ring buffer
-       At this offset there is a bcm_ring_buf_desc_t
-       that describe the RX ring buffer
-      */
-      size_t rx_ring_buf_desc_off;
-      size_t rx_ring_buf_desc_size;
-      /*
-       Offset and size in the region where is the memory used by the RX ring buffer
-       Beware that rx_buffer_size is the size reserved for the buffer
-       but actual len of ring buffer may be less (but not greater)
-      */
-      size_t rx_buffer_offset;
-      size_t rx_buffer_size;
-      /*
-       Offset and size in the region where is the description of TX ring buffer
-       At this offset there is a bcm_ring_buf_desc_t
-       that describe the TX ring buffer
-      */
-      size_t tx_ring_buf_desc_off;
-      size_t tx_ring_buf_desc_size;
-      /*
-       Offset and size in the region where is the memory used by the TX ring buffer
-       Beware that tx_buffer_size is the size reserved for the buffer
-       but actual len of ring buffer may be less (but not greater)
-      */
-      size_t tx_buffer_offset;
-      size_t tx_buffer_size;
-   } rbs[BCMPH_MAX_LINES];
-} bcm_phone_get_mmap_rbs_location_t;
+#define BCMPH_SAMPLES_PER_MS 8
+#define BCMPH_SAMPLE_RATE (BCMPH_SAMPLES_PER_MS * 1000)
+#define BCMPH_MIN_SIZE_RING_BUFFER (BCMPH_SAMPLES_PER_MS * 4 * 30) /* in bytes */
 
 typedef struct {
    /* The line index we want to change the codec */
@@ -176,6 +151,20 @@ typedef struct {
     (BCMPH_MODE_UNSPECIFIED != mode)
    */
    bcm_phone_line_mode_t mode;
+#ifndef BCMPH_DAHDI_DRIVER
+   /* Eventually enable or disable echo cancellation
+    if > 0 : enable echo cancellation
+    if 0 : disable echo cancellation
+    if < 0 : do not change echo cancellation
+   */
+   int echo_cancellation;
+#endif /* !BCMPH_DAHDI_DRIVER */
+   /* Eventually change the polarity :
+    if > 0 : reverse the polarity
+    if 0 : do not reverse polarity
+    if < 0 : do not change polarity
+   */
+   int reverse_polarity;
    /*
     Eventually change the line tone too if
     (BCMPH_MODE_UNSPECIFIED != mode)
@@ -187,13 +176,31 @@ typedef struct {
 typedef struct {
    /* The line index we want to change the mode */
    size_t line;
-   /* The new mode */
+   /*
+    The new mode (beware that for mode BCMPH_MODE_OFF_TALKING and
+    BCMPH_MODE_ON_TALKING, it automatically start PCM if not started)
+   */
    bcm_phone_line_mode_t mode;
+#ifndef BCMPH_DAHDI_DRIVER
+   /* Eventually enable or disable echo cancellation
+    if > 0 : enable echo cancellation
+    if 0 : disable echo cancellation
+    if < 0 : do not change echo cancellation
+   */
+   int echo_cancellation;
+#endif /* !BCMPH_DAHDI_DRIVER */
+   /* Eventually change the polarity :
+    if > 0 : reverse the polarity
+    if 0 : do not reverse polarity
+    if < 0 : do not change polarity
+   */
+   int reverse_polarity;
    /*
     Eventually change the line tone too if
     (BCMPH_TONE_UNSPECIFIED != bcm_phone_line_tone_decode_index(tone))
    */
    __u32 tone;
+#ifdef BCMPH_EXPORT_DEV_FILE
    /*
     As mode is not changed immediately,
     asks to wait for the change to occurs before returning from ioctl
@@ -202,6 +209,7 @@ typedef struct {
     If negative, wait indefinitely that the mode changes
    */
    int wait;
+#endif /* BCMPH_EXPORT_DEV_FILE */
 } bcm_phone_set_line_mode_t;
 
 typedef struct {
@@ -209,6 +217,7 @@ typedef struct {
    size_t line;
    /* The new tone */
    __u32 tone;
+#ifdef BCMPH_EXPORT_DEV_FILE
    /*
     As tone is not changed immediately,
     asks to wait for the change to occurs before returning from ioctl
@@ -217,9 +226,11 @@ typedef struct {
     If negative, wait indefinitely that the mode changes
    */
    int wait;
+#endif /* BCMPH_EXPORT_DEV_FILE */
 } bcm_phone_set_line_tone_t;
 
 typedef struct {
+#ifdef BCMPH_EXPORT_DEV_FILE
    /*
     Used on input only.
     If null, read line state and exits immediately.
@@ -227,6 +238,9 @@ typedef struct {
     If negative, wait indefinitely that state of at least one line changes
    */
    int wait;
+#endif /* BCMPH_EXPORT_DEV_FILE */
+   /* Set to true if PCM is started */
+   bool pcm_is_started;
    /* The state of all the lines */
    bcm_phone_line_state_t line_state[BCMPH_MAX_LINES];
 } bcm_phone_get_line_states_t;
@@ -241,6 +255,47 @@ typedef struct {
    /* The number of flash events to add */
    __u16 flash_count;
 } bcm_phone_set_line_state_t;
+
+/* Describe location of ring buffers in mmapped region (location changes after
+ call to BCMPH_IOCTL_START and BCMPH_IOCTL_START_MM */
+typedef struct {
+   struct {
+#ifdef BCMPH_EXPORT_DEV_FILE
+      /*
+       Offset and size in the region where are the description of RX ring buffer
+       At this offset there is a bcm_ring_buf_desc_t
+       that describe the RX ring buffer
+      */
+      size_t rx_ring_buf_desc_off;
+      size_t rx_ring_buf_desc_size;
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      /*
+       Offset and size in the region where is the memory used by the RX ring buffer
+       Beware that rx_buffer_size is the size reserved for the buffer
+       but actual len of ring buffer may be less (but not greater)
+      */
+      size_t rx_buffer_offset;
+      size_t rx_buffer_size;
+#ifdef BCMPH_EXPORT_DEV_FILE
+      /*
+       Offset and size in the region where is the description of TX ring buffer
+       At this offset there is a bcm_ring_buf_desc_t
+       that describe the TX ring buffer
+      */
+      size_t tx_ring_buf_desc_off;
+      size_t tx_ring_buf_desc_size;
+#endif /* BCMPH_EXPORT_DEV_FILE */
+      /*
+       Offset and size in the region where is the memory used by the TX ring buffer
+       Beware that tx_buffer_size is the size reserved for the buffer
+       but actual len of ring buffer may be less (but not greater)
+      */
+      size_t tx_buffer_offset;
+      size_t tx_buffer_size;
+   } rbs[BCMPH_MAX_LINES];
+} bcm_phone_get_mmap_rbs_location_t;
+
+#ifdef BCMPH_EXPORT_DEV_FILE
 
 typedef struct {
    /*
@@ -288,6 +343,9 @@ typedef struct {
    const __u8 *buf;
    __u8 do_not_block;
 } bcm_phone_write_t;
+
+/* Magic number */
+#define BCMPH_IOCTL_MAGIC 'E'
 
 /* Read the version of the driver */
 #define BCMPH_IOCTL_READ_VERSION \
@@ -377,15 +435,23 @@ typedef struct {
 #define BCMPH_IOCTL_GET_MMAP_RBS_LOCATION_MM \
    _IO(BCMPH_IOCTL_MAGIC, 16)
 
-/* Start PCM data transfers */
+/*
+ Start PCM data transfers.
+ Remember that PCM data transfers are automatically started as soon as
+ a line switches to mode BCMPH_MODE_ON_TALKING or BCMPH_MODE_OFF_TALKING
+*/
 #define BCMPH_IOCTL_START_PCM \
     _IO(BCMPH_IOCTL_MAGIC, 17)
 
-/* Stop PCM data transfers */
+/*
+ Stop PCM data transfers. If at least one line is in mode
+ BCMPH_MODE_ON_TALKING or BCMPH_MODE_OFF_TALKING, PCM data transfers
+ are not stopped.
+*/
 #define BCMPH_IOCTL_STOP_PCM \
     _IO(BCMPH_IOCTL_MAGIC, 18)
 
-/* Change the codec used by a phone line */
+/* Change the codec used by a phone line (and eventually mode and tone) */
 #define BCMPH_IOCTL_SET_LINE_CODEC \
    _IOW(BCMPH_IOCTL_MAGIC, 19, bcm_phone_set_line_codec_t)
 
@@ -393,7 +459,7 @@ typedef struct {
 #define BCMPH_IOCTL_SET_LINE_CODEC_MM \
    _IO(BCMPH_IOCTL_MAGIC, 20)
 
-/* Change the mode of a phone line */
+/* Change the mode of a phone line (and eventually tone) */
 #define BCMPH_IOCTL_SET_LINE_MODE \
    _IOW(BCMPH_IOCTL_MAGIC, 21, bcm_phone_set_line_mode_t)
 
@@ -409,7 +475,10 @@ typedef struct {
 #define BCMPH_IOCTL_SET_LINE_TONE_MM \
    _IO(BCMPH_IOCTL_MAGIC, 24)
 
-/* Gets the state of all the phone lines */
+/*
+ Gets the state of all the phone lines + flag indicating if
+ PCM data transfers are running or not
+*/
 #define BCMPH_IOCTL_GET_LINE_STATES \
    _IOWR(BCMPH_IOCTL_MAGIC, 25, bcm_phone_get_line_states_t)
 
@@ -417,7 +486,9 @@ typedef struct {
 #define BCMPH_IOCTL_GET_LINE_STATES_MM \
    _IO(BCMPH_IOCTL_MAGIC, 26)
 
-/* Gets the state of all the phone lines */
+# ifdef BCMPH_NOHW
+
+/* Set the state of a phone line */
 #define BCMPH_IOCTL_SET_LINE_STATE \
    _IOW(BCMPH_IOCTL_MAGIC, 27, bcm_phone_set_line_state_t)
 
@@ -425,11 +496,28 @@ typedef struct {
 #define BCMPH_IOCTL_SET_LINE_STATE_MM \
    _IO(BCMPH_IOCTL_MAGIC, 28)
 
+# endif /* BCMPH_NOHW */
+
 /*
  Ask the driver to update the RX and TX ring buf descriptors of all
  the lines in the mmap. Also done by READ_MM and WRITE_MM
 */
 #define BCMPH_IOCTL_UPDATE_RBS \
    _IO(BCMPH_IOCTL_MAGIC, 29)
+
+#else /* !BCMPH_EXPORT_DEV_FILE */
+
+# ifdef BCMPH_NOHW
+
+/* Magic number */
+#define BCMPH_IOCTL_MAGIC 'G'
+
+#define BCMPH_IOCTL_SET_LINE_STATE \
+   _IOW(BCMPH_IOCTL_MAGIC, 1, bcm_phone_set_line_state_t)
+
+# endif /* BCMPH_NOHW */
+
+#endif /* !BCMPH_EXPORT_DEV_FILE */
+
 
 #endif /* __BCM63XX_PHONE_H__ */
