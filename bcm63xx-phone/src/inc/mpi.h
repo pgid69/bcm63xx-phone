@@ -12,10 +12,12 @@
 #include "config.h"
 
 #ifdef __KERNEL__
-# include <linux/spi/spi.h>
-# ifndef BCMPH_NOHW
-#  include <../drivers/spi/spi-bcm63xx.h>
-# endif /* BCMPH_NOHW */
+# ifdef BCMPH_USE_SPI_DRIVER
+#  include <linux/spi/spi.h>
+#  ifndef BCMPH_NOHW
+#   include <../drivers/spi/spi-bcm63xx.h>
+#  endif /* BCMPH_NOHW */
+# endif /* !BCMPH_USE_SPI_DRIVER */
 #endif /* __KERNEL__ */
 
 #include "board.h"
@@ -29,7 +31,7 @@
 #ifndef BCMPH_USE_SPI_DRIVER
 typedef struct {
    __u32 ref_count;
-#ifndef BCMPH_NOHW
+# ifndef BCMPH_NOHW
    struct completion done;
    int irq;
 
@@ -55,8 +57,17 @@ typedef struct {
 
    __u8 clk_cfg;
    __u8 fill_byte;
-#endif /* BCMPH_NOHW */
+# endif /* BCMPH_NOHW */
 } bcm_mpi_dev_data_t;
+
+# ifndef BCMPH_NOHW
+struct bcm63xx_spi_trx_opts {
+   u8 fill_byte;
+   bool wait_completion_with_irq;
+   bool drop_cs_after_each_byte;
+   u8 cs_off_clk_cycles;
+};
+# endif /* BCMPH_NOHW */
 #endif /* !BCMPH_USE_SPI_DRIVER */
 
 typedef struct mpi {

@@ -10,6 +10,8 @@
 
 #if ((defined __KERNEL__) && (defined BCMPH_NOHW))
 
+#include <extern/linux/slab.h>
+
 #include <bcm63xx_phone.h>
 #include <bcm63xx_log.h>
 #include <bcm63xx_ring_buf.h>
