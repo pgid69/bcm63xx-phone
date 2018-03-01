@@ -563,7 +563,9 @@ static struct platform_driver bcm63xx_spi_driver = {
       .name       = "bcm63xx-spi",
       .owner      = THIS_MODULE,
       .pm         = BCM63XX_SPI_PM_OPS,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)
       .probe_type = PROBE_FORCE_SYNCHRONOUS,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0) */
    },
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
    .id_table   = bcm63xx_spi_dev_match,
