@@ -413,12 +413,22 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
 
    bcm_pr_debug("%s()\n", __func__);
 
-   if (!pdev->id_entry->driver_data) {
+   if (
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+       (!pdev->id_entry->driver_data)
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
+       (!BCMCPU_IS_6358())
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
+      ) {
       return -EINVAL;
    }
 
    bs = &(bcm_mpi_dev_data);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
    bcm_mpi_dev_data_init(bs, (const unsigned long *)pdev->id_entry->driver_data);
+#else /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
+   bcm_mpi_dev_data_init(bs, bcm6358_spi_reg_offsets);
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
    bs->ref_count = 1;
    bs->pdev = pdev;
 
@@ -863,7 +873,7 @@ int __init bcm_mpi_init(bcm_mpi_t *t, const bcm_mpi_params_t *params)
    struct spi_master *master;
    struct spi_board_info board_info;
 # endif // !BCMPH_NOHW
-#endif // !BCMPH_USE_SPI_DRIVER
+#endif // BCMPH_USE_SPI_DRIVER
 
    bcm_pr_debug("%s()\n", __func__);
    bcm_assert(NULL != params);
@@ -907,9 +917,9 @@ int __init bcm_mpi_init(bcm_mpi_t *t, const bcm_mpi_params_t *params)
    }
 
    bcm_mpi_enable_extra_CSs(params->cs);
-# ifdef BCMPH_DEBUG_MPI
+#  ifdef BCMPH_DEBUG_MPI
    t->trace_len = 0;
-# endif // BCMPH_DEBUG_MPI
+#  endif // BCMPH_DEBUG_MPI
 
    return (0);
 
