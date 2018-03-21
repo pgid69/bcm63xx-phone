@@ -21,6 +21,11 @@ define KernelPackage/bcm63xx-phone-dahdi
   TITLE:=DAHDI driver for Le88221 and Le88266
   DEPENDS:=@(TARGET_brcm63xx) kmod-dahdi @!PACKAGE_kmod-bcm63xx-phone
   FILES:=$(PKG_BUILD_DIR)/bcm63xx-phone-dahdi.$(LINUX_KMOD_SUFFIX)
+# Uncomment the following line if compilation failed
+# - because symbol BCMPH_USE_SPI_DRIVER is defined in inc/config.h
+# - driver spi-bcm63xx is not compiled as a built-in driver of the
+#   kernel but as a module
+#  FILES+=$(LINUX_DIR)/drivers/spi/spi-bcm63xx.$(LINUX_KMOD_SUFFIX)
 endef
 
 define KernelPackage/bcm63xx-phone-dahdi/description
