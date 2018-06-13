@@ -5,8 +5,8 @@ Subject: [PATCH] Add fn to spi-bcm63xx.c for quick transfer, to be used by
  bcm63xx-phone
 
 ---
- ...-add_fn_to_spi_bcm63xx_for_quick_transfer.patch | 377 +++++++++++++++++++++
- 1 file changed, 377 insertions(+)
+ ...-add_fn_to_spi_bcm63xx_for_quick_transfer.patch | 378 +++++++++++++++++++++
+ 1 file changed, 378 insertions(+)
  create mode 100644 target/linux/brcm63xx/patches-4.4/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
 
 diff --git a/target/linux/brcm63xx/patches-4.4/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch b/target/linux/brcm63xx/patches-4.4/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
@@ -14,7 +14,7 @@ new file mode 100644
 index 0000000..c252285
 --- /dev/null
 +++ b/target/linux/brcm63xx/patches-4.4/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,378 @@
 +--- a/drivers/spi/spi-bcm63xx.c
 ++++ b/drivers/spi/spi-bcm63xx.c
 +@@ -26,6 +26,7 @@
