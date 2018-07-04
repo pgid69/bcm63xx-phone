@@ -91,7 +91,7 @@ cid_signalling = none
 ; dtmf : a DTMF signals the start
 ; polarity_and_dtmf : polarity reversal followed by a DTMF signals the start
 cid_start = ring
-: The length of the oslec echo canceller, in samples.
+; The length of the oslec echo canceller, in samples.
 ; Value must be 0 or a power of two in the range [32, 1024]
 ; If > 0, enable oslec echo canceller. Codec slin must be supported and
 ; is the only one that will be used
@@ -165,7 +165,7 @@ cid_signalling = none
 ; dtmf : a DTMF signals the start
 ; polarity_and_dtmf : polarity reversal followed by a DTMF signals the start
 cid_start = ring
-: The length of the oslec echo canceller, in samples.
+; The length of the oslec echo canceller, in samples.
 ; Value must be 0 or a power of two in the range [32, 1024]
 ; If > 0, enable oslec echo canceller. Codec slin must be supported and
 ; is the only one that will be used

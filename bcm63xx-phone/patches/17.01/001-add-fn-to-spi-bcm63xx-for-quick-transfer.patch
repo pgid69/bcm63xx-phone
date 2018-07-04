@@ -345,7 +345,7 @@ index 0000000..c252285
 + 	if (ret) {
 +--- /dev/null
 ++++ b/drivers/spi/spi-bcm63xx.h
-+@@ -0,0 +1,46 @@
++@@ -0,0 +1,47 @@
 ++#ifndef SPI_BCM63XX_H
 ++#define SPI_BCM63XX_H
 ++
