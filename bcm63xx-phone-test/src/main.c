@@ -283,7 +283,12 @@ static void init_phone_cfg(bcm_phone_cfg_params_t *prms)
    for (i = 0; (i < ARRAY_SIZE(prm_lines)); i += 1) {
       prms->line_params[i].enable = prm_lines[i].enable;
       prms->line_params[i].codec = prm_lines[i].codec;
-      prms->line_params[i].echo_cancel_tap_length = 64;
+      if (prm_ec) {
+         prms->line_params[i].echo_cancel_tap_length = 64;
+      }
+      else {
+         prms->line_params[i].echo_cancel_tap_length = 0;
+      }
    }
 }
 
