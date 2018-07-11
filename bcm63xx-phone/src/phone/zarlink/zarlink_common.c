@@ -379,7 +379,9 @@ static inline const VpProfileDataType *zarlink_profiles_get_default_AC(const zar
    VpOptionCodecType codec)
 {
    d_bcm_pr_debug("%s(codec=%d)\n", __func__, (int)(codec));
-   if (VP_OPTION_WIDEBAND != codec) {
+   if ((VP_OPTION_LINEAR_WIDEBAND != codec)
+       && (VP_OPTION_ALAW_WIDEBAND != codec)
+       && (VP_OPTION_MLAW_WIDEBAND != codec)) {
       bcm_assert((NULL != t->default_AC_profile_NB) && (VP_PRFWZ_PROFILE_AC == t->default_AC_profile_NB[VP_PROFILE_TYPE_LSB]));
       return (t->default_AC_profile_NB);
    }
@@ -397,7 +399,9 @@ static inline const VpProfileDataType *zarlink_profiles_get_AC(const zarlink_pro
    d_bcm_pr_debug("%s(country=%d, codec=%d)\n", __func__,
       (int)(country), (int)(codec));
    bcm_assert(/* (country >= 0) && */(country < BCMPH_COUNTRY_MAX));
-   if (VP_OPTION_WIDEBAND != codec) {
+   if ((VP_OPTION_LINEAR_WIDEBAND != codec)
+       && (VP_OPTION_ALAW_WIDEBAND != codec)
+       && (VP_OPTION_MLAW_WIDEBAND != codec)) {
       ret = t->AC_profiles_NB[country];
    }
    else {

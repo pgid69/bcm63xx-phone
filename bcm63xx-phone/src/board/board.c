@@ -477,12 +477,12 @@ static zarlink_device_parameters_t hw556_le88266_dev_params = {
 };
 
 static zarlink_line_parameters_t hw556_le88266_line0_params = {
-   .id = 0,
+   .id = 1,
    .type = VP_TERM_FXS_GENERIC,
 };
 
 static zarlink_line_parameters_t hw556_le88266_line1_params = {
-   .id = 1,
+   .id = 0,
    .type = VP_TERM_FXS_GENERIC,
 };
 
