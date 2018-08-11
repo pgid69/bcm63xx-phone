@@ -193,8 +193,8 @@ static size_t bcmph_callerid_sig_fsk_genmsg(const char *name, const char *number
           && (NULL != number)) {
          bool invalid_characters = false;
          /* Checks that all characters are valid */
-         for (; ('\0' != *number); number += 1) {
-            char c = *number;
+         for (char *number_ptr = number; ('\0' != *number_ptr); number_ptr += 1) {
+            char c = *number_ptr;
             if ((isdigit(c)) || ('*' == c) || ('#' == c)
                 || (' ' == c) || ('-' == c) || ('(' == c) || (')' == c)) {
                if ((count >= CID_MAX_NUMBER_LENGTH) || ((ret + count + 2) >= buffer_len)) {
@@ -246,8 +246,8 @@ static size_t bcmph_callerid_sig_fsk_genmsg(const char *name, const char *number
           && (NULL != name)) {
          bool invalid_characters = false;
          /* Checks that all characters are valid */
-         for (; ('\0' != *name); name += 1) {
-            char c = *name;
+         for (char *name_ptr = name; ('\0' != *name_ptr); name_ptr += 1) {
+            char c = *name_ptr;
             if ((c >= 32) && (c < 127)) {
                if ((count >= CID_MAX_NAME_LENGTH) || ((ret + count + 2) >= buffer_len)) {
                   bcm_pr_warn("CID name '%s' is too long. Only first %u characters are used.\n",
@@ -262,7 +262,7 @@ static size_t bcmph_callerid_sig_fsk_genmsg(const char *name, const char *number
             }
          }
          if (invalid_characters) {
-            bcm_pr_warn("CID name '%s' contains invalid character(s).\n", number);
+            bcm_pr_warn("CID name '%s' contains invalid character(s).\n", name);
          }
       }
       if (count > 0) {
