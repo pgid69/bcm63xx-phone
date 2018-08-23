@@ -1,0 +1,303 @@
+From 161056fa2ccc0bccbb06235d7d26fd119a03b72f Mon Sep 17 00:00:00 2001
+From: Gilles Mazoyer <mazoyer@gmazoyer-debian.ksl.fr>
+Date: Thu, 23 Aug 2018 10:11:27 +0200
+Subject: [PATCH] Add fn to spi-bcm63xx.c for quick transfer, to be used by
+ bcm63xx-phone
+
+---
+ ...-add_fn_to_spi_bcm63xx_for_quick_transfer.patch | 283 +++++++++++++++++++++
+ 1 file changed, 283 insertions(+)
+ create mode 100644 target/linux/brcm63xx/patches-4.9/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
+
+diff --git a/target/linux/brcm63xx/patches-4.9/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch b/target/linux/brcm63xx/patches-4.9/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
+new file mode 100644
+index 0000000000..4ab377c2e2
+--- /dev/null
++++ b/target/linux/brcm63xx/patches-4.9/900-add_fn_to_spi_bcm63xx_for_quick_transfer.patch
+@@ -0,0 +1,283 @@
++--- a/drivers/spi/spi-bcm63xx.c
+++++ b/drivers/spi/spi-bcm63xx.c
++@@ -27,6 +27,7 @@
++ #include <linux/err.h>
++ #include <linux/pm_runtime.h>
++ #include <linux/of.h>
+++#include "spi-bcm63xx.h"
++ 
++ /* BCM 6338/6348 SPI core */
++ #define SPI_6348_RSET_SIZE		64
++@@ -137,7 +138,6 @@ enum bcm63xx_regs_spi {
++ #define BCM63XX_SPI_MAX_PREPEND		15
++ 
++ #define BCM63XX_SPI_MAX_CS		8
++-#define BCM63XX_SPI_BUS_NUM		0
++ 
++ struct bcm63xx_spi {
++ 	struct completion	done;
++@@ -157,6 +157,10 @@ struct bcm63xx_spi {
++ 
++ 	struct clk		*clk;
++ 	struct platform_device	*pdev;
+++
+++	u32 last_speed_hz;
+++	u8 last_cs_off_clk_cycles;
+++	u8 last_fill_byte;
++ };
++ 
++ static inline u8 bcm_spi_readb(struct bcm63xx_spi *bs,
++@@ -201,10 +205,9 @@ static const unsigned bcm63xx_spi_freq_t
++ 	{   391000, SPI_CLK_0_391MHZ }
++ };
++ 
++-static void bcm63xx_spi_setup_transfer(struct spi_device *spi,
++-				      struct spi_transfer *t)
+++static inline u8 bcm63xx_spi_set_clk_cfg(struct bcm63xx_spi *bs,
+++	u32 speed_hz, u8 cs_off_clk_cycles)
++ {
++-	struct bcm63xx_spi *bs = spi_master_get_devdata(spi->master);
++ 	u8 clk_cfg, reg;
++ 	int i;
++ 
++@@ -212,28 +215,57 @@ static void bcm63xx_spi_setup_transfer(s
++ 	clk_cfg = SPI_CLK_0_391MHZ;
++ 
++ 	/* Find the closest clock configuration */
++-	for (i = 0; i < SPI_CLK_MASK; i++) {
++-		if (t->speed_hz >= bcm63xx_spi_freq_table[i][0]) {
+++	for (i = 0; (i < ARRAY_SIZE(bcm63xx_spi_freq_table)); i++) {
+++		if (speed_hz >= bcm63xx_spi_freq_table[i][0]) {
++ 			clk_cfg = bcm63xx_spi_freq_table[i][1];
++ 			break;
++ 		}
++ 	}
++ 
+++	clk_cfg |= (cs_off_clk_cycles << SPI_SSOFFTIME_SHIFT);
+++
++ 	/* clear existing clock configuration bits of the register */
++ 	reg = bcm_spi_readb(bs, SPI_CLK_CFG);
++-	reg &= ~SPI_CLK_MASK;
+++	reg &= ~(SPI_CLK_MASK | SPI_SSOFFTIME_MASK);
++ 	reg |= clk_cfg;
++ 
++ 	bcm_spi_writeb(bs, reg, SPI_CLK_CFG);
++-	dev_dbg(&spi->dev, "Setting clock register to %02x (hz %d)\n",
++-		clk_cfg, t->speed_hz);
+++
+++	bs->last_speed_hz = speed_hz;
+++	bs->last_cs_off_clk_cycles = cs_off_clk_cycles;
+++
+++	return (clk_cfg);
+++}
+++
+++static inline void bcm63xx_spi_set_fill_byte(struct bcm63xx_spi *bs, u8 fill_byte)
+++{
+++	bcm_spi_writeb(bs, fill_byte, SPI_FILL_BYTE);
+++
+++	bs->last_fill_byte = fill_byte;
+++}
+++
+++static void bcm63xx_spi_setup_transfer(struct spi_device *spi,
+++	u32 speed_hz, u8 cs_off_clk_cycles, u8 fill_byte)
+++{
+++	struct bcm63xx_spi *bs = spi_master_get_devdata(spi->master);
+++
+++	if ((speed_hz != bs->last_speed_hz)
+++	    || (cs_off_clk_cycles != bs->last_cs_off_clk_cycles)) {
+++		u8 clk_cfg = bcm63xx_spi_set_clk_cfg(bs, speed_hz, cs_off_clk_cycles);
+++		dev_dbg(&spi->dev, "Setting clock register to %02x (hz %d)\n",
+++			clk_cfg, speed_hz);
+++	}
+++	if (fill_byte != bs->last_fill_byte) {
+++		bcm63xx_spi_set_fill_byte(bs, fill_byte);
+++	}
++ }
++ 
++ /* the spi->mode bits understood by this driver: */
++ #define MODEBITS (SPI_CPOL | SPI_CPHA)
++ 
++-static int bcm63xx_txrx_bufs(struct spi_device *spi, struct spi_transfer *first,
++-				unsigned int num_transfers)
+++static int bcm63xx_txrx_bufs(struct spi_device *spi,
+++		struct spi_transfer *first, unsigned int num_transfers,
+++		bool drop_cs_after_each_byte, bool wait_completion_with_irq)
++ {
++ 	struct bcm63xx_spi *bs = spi_master_get_devdata(spi->master);
++ 	u16 msg_ctl;
++@@ -276,8 +308,6 @@ static int bcm63xx_txrx_bufs(struct spi_
++ 			       transfer_list);
++ 	}
++ 
++-	reinit_completion(&bs->done);
++-
++ 	/* Fill in the Message control register */
++ 	msg_ctl = (len << SPI_BYTE_CNT_SHIFT);
++ 
++@@ -297,18 +327,34 @@ static int bcm63xx_txrx_bufs(struct spi_
++ 		break;
++ 	}
++ 
++-	/* Issue the transfer */
++ 	cmd = SPI_CMD_START_IMMEDIATE;
++ 	cmd |= (prepend_len << SPI_CMD_PREPEND_BYTE_CNT_SHIFT);
++ 	cmd |= (spi->chip_select << SPI_CMD_DEVICE_ID_SHIFT);
++-	bcm_spi_writew(bs, cmd, SPI_CMD);
+++	if (drop_cs_after_each_byte) {
+++		cmd |= (1 << SPI_CMD_ONE_BYTE_SHIFT);
+++	}
++ 
++-	/* Enable the CMD_DONE interrupt */
++-	bcm_spi_writeb(bs, SPI_INTR_CMD_DONE, SPI_INT_MASK);
+++	bcm_spi_writeb(bs, SPI_INTR_CLEAR_ALL, SPI_INT_STATUS);
+++	if (wait_completion_with_irq) {
+++		reinit_completion(&bs->done);
+++		/* Enable the CMD_DONE interrupt */
+++		bcm_spi_writeb(bs, SPI_INTR_CMD_DONE, SPI_INT_MASK);
+++	}
++ 
++-	timeout = wait_for_completion_timeout(&bs->done, HZ);
++-	if (!timeout)
++-		return -ETIMEDOUT;
+++	/* Issue the transfer */
+++	bcm_spi_writew(bs, cmd, SPI_CMD);
+++
+++	if (wait_completion_with_irq) {
+++		timeout = wait_for_completion_timeout(&bs->done, HZ);
+++		if (!timeout) {
+++			return -ETIMEDOUT;
+++		}
+++	}
+++	else {
+++		while (!(bcm_spi_readb(bs, SPI_INT_STATUS) & SPI_INTR_CMD_DONE)) {
+++			usleep_range(10, 100);
+++		}
+++	}
++ 
++ 	if (!do_rx)
++ 		return 0;
++@@ -330,12 +376,18 @@ static int bcm63xx_txrx_bufs(struct spi_
++ 	return 0;
++ }
++ 
++-static int bcm63xx_spi_transfer_one(struct spi_master *master,
++-					struct spi_message *m)
+++static struct bcm63xx_spi_trx_opts legacy_trx_opts = {
+++	.fill_byte = 0xff,
+++	.wait_completion_with_irq = true,
+++	.drop_cs_after_each_byte = false,
+++	.cs_off_clk_cycles = 0,
+++};
+++
+++int bcm63xx_spi_raw_sync_locked(struct spi_device *spi,
+++	struct bcm63xx_spi_trx_opts *trx_opts, struct spi_message *m)
++ {
++-	struct bcm63xx_spi *bs = spi_master_get_devdata(master);
+++	struct bcm63xx_spi *bs = spi_master_get_devdata(spi->master);
++ 	struct spi_transfer *t, *first = NULL;
++-	struct spi_device *spi = m->spi;
++ 	int status = 0;
++ 	unsigned int n_transfers = 0, total_len = 0;
++ 	bool can_use_prepend = false;
++@@ -383,13 +435,16 @@ static int bcm63xx_spi_transfer_one(stru
++ 			goto exit;
++ 		}
++ 
++-		if (t->cs_change ||
+++		if (((!trx_opts->drop_cs_after_each_byte) && (t->cs_change)) ||
++ 		    list_is_last(&t->transfer_list, &m->transfers)) {
++ 			/* configure adapter for a new transfer */
++-			bcm63xx_spi_setup_transfer(spi, first);
+++			bcm63xx_spi_setup_transfer(spi, first->speed_hz,
+++				trx_opts->cs_off_clk_cycles, trx_opts->fill_byte);
++ 
++ 			/* send the data */
++-			status = bcm63xx_txrx_bufs(spi, first, n_transfers);
+++			status = bcm63xx_txrx_bufs(spi, first, n_transfers,
+++				trx_opts->drop_cs_after_each_byte,
+++				trx_opts->wait_completion_with_irq);
++ 			if (status)
++ 				goto exit;
++ 
++@@ -403,10 +458,18 @@ static int bcm63xx_spi_transfer_one(stru
++ 	}
++ exit:
++ 	m->status = status;
++-	spi_finalize_current_message(master);
++ 
++ 	return 0;
++ }
+++EXPORT_SYMBOL_GPL(bcm63xx_spi_raw_sync_locked);
+++
+++static int bcm63xx_spi_transfer_one(struct spi_master *master,
+++					struct spi_message *m)
+++{
+++	int ret = bcm63xx_spi_raw_sync_locked(m->spi, &(legacy_trx_opts), m);
+++	spi_finalize_current_message(m->spi->master);
+++	return (ret);
+++}
++ 
++ /* This driver supports single master mode only. Hence
++  * CMD_DONE is the only interrupt we care about
++@@ -592,6 +655,11 @@ static int bcm63xx_spi_probe(struct plat
++ 
++ 	bcm_spi_writeb(bs, SPI_INTR_CLEAR_ALL, SPI_INT_STATUS);
++ 
+++	bcm63xx_spi_set_clk_cfg(bs,
+++		bcm63xx_spi_freq_table[ARRAY_SIZE(bcm63xx_spi_freq_table) - 1][0],
+++		legacy_trx_opts.cs_off_clk_cycles);
+++	bcm63xx_spi_set_fill_byte(bs, legacy_trx_opts.fill_byte);
+++
++ 	/* register and we are done */
++ 	ret = devm_spi_register_master(dev, master);
++ 	if (ret) {
++--- /dev/null
+++++ b/drivers/spi/spi-bcm63xx.h
++@@ -0,0 +1,47 @@
+++#ifndef SPI_BCM63XX_H
+++#define SPI_BCM63XX_H
+++
+++#define BCM63XX_SPI_BUS_NUM		0
+++
+++/*
+++ * struct bcm63xx_spi_trx_opts : additional options for a transfer
+++ * @fill_byte : when the SPI controller of bcm63xx SoC must read a byte
+++ * but has no more bytes to write, it writes @fill_byte on the SPI bus
+++ * @wait_completion_with_irq : if set the driver waits for completion
+++ * of the transfer using interrupt routine. Else does polling.
+++ * @drop_cs_after_each_byte : if set the SPI controler of bcm63xx SoC
+++ * drop CS signal after each byte.
+++ * @cs_off_clk_cycles is the number of clock cycles the CS signal is
+++ * dropped between each byte.
+++ */
+++struct bcm63xx_spi_trx_opts {
+++	u8 fill_byte;
+++	bool wait_completion_with_irq;
+++	bool drop_cs_after_each_byte;
+++	u8 cs_off_clk_cycles;
+++};
+++
+++/*
+++ * This function is a quick and raw replacement for spi_sync_locked().
+++ * Must be called with bus locked (spi_bus_lock(), spi_bus_unlock()).
+++
+++ * The function allows to specify additional options for a transfer.
+++ * The most important one is probably 'drop_cs_after_each_byte'.
+++ * See struct bcm63xx_spi_trx_opts.
+++
+++ * It also allows making a transfer with a much lower overhead
+++ * that spi_sync_unlocked() because :
+++ * - _spi_validate() is not called on the message : no checking of
+++ * length, bits_per_word...
+++ * Of course the spi_message must be well formed : for each spi_transfer
+++ * that constitues the spi_message, in addition to rx_buf, tx_buf and
+++ * len, the other required field is speed_hz.
+++ * - the spi_message is not queued : no call to spi_map_message,
+++ * master->prepare_message, master->unprepare_message...
+++ * it is sent synchronously and the callback complete of the spi_message
+++ * is not called.
+++ */
+++extern int bcm63xx_spi_raw_sync_locked(struct spi_device *spi,
+++	struct bcm63xx_spi_trx_opts *trx_opts, struct spi_message *m);
+++
+++#endif /* SPI_BCM63XX_H */
+-- 
+2.11.0
+
