@@ -17,8 +17,16 @@
 #  ifndef BCMPH_NOHW
 #   include <../drivers/spi/spi-bcm63xx.h>
 #  endif /* BCMPH_NOHW */
-# endif /* !BCMPH_USE_SPI_DRIVER */
+# endif /* BCMPH_USE_SPI_DRIVER */
 #endif /* __KERNEL__ */
+
+#ifndef BCMPH_USE_SPI_DRIVER
+# ifndef BCMPH_NOHW
+#  include <linux/clk.h>
+#  include <linux/completion.h>
+#  include <linux/platform_device.h>
+# endif /* !BCMPH_NOHW */
+#endif /* !BCMPH_USE_SPI_DRIVER */
 
 #include "board.h"
 

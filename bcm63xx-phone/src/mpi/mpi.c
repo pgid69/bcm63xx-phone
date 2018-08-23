@@ -13,14 +13,11 @@
 #ifndef BCMPH_NOHW
 #ifndef BCMPH_USE_SPI_DRIVER
 #include <linux/init.h>
-#include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/module.h>
-#include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/spi/spi.h>
-#include <linux/completion.h>
 #include <linux/err.h>
 #include <linux/workqueue.h>
 #include <linux/pm_runtime.h>
