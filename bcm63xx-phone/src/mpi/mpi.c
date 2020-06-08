@@ -400,6 +400,13 @@ static const struct platform_device_id bcm63xx_spi_dev_match[] = {
 };
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0) */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+static const struct of_device_id bcm63xx_spi_of_match[] = {
+	{ .compatible = "brcm,bcm6358-spi", .data = &bcm6358_spi_reg_offsets },
+	{ },
+};
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0) */
+
 static int bcm63xx_spi_probe(struct platform_device *pdev)
 {
    struct device *dev = &(pdev->dev);
@@ -411,6 +418,9 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    bcm_pr_debug("%s()\n", __func__);
 
    if (
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+	(!dev->of_node) &&
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0) */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
        (!pdev->id_entry->driver_data)
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
@@ -421,6 +431,15 @@ static int bcm63xx_spi_probe(struct platform_device *pdev)
    }
 
    bs = &(bcm_mpi_dev_data);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+   if (dev->of_node) {
+      const struct of_device_id *match;
+      match = of_match_node(bcm63xx_spi_of_match, dev->of_node);
+      if (!match)
+         return -EINVAL;
+      bcm_mpi_dev_data_init(bs, match->data);
+   } else
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0) */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
    bcm_mpi_dev_data_init(bs, (const unsigned long *)pdev->id_entry->driver_data);
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0) */
@@ -573,12 +592,18 @@ static struct platform_driver bcm63xx_spi_driver = {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)
       .probe_type = PROBE_FORCE_SYNCHRONOUS,
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0) */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+      .of_match_table = bcm63xx_spi_of_match,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0) */
    },
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
    .id_table   = bcm63xx_spi_dev_match,
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0) */
    .probe      = bcm63xx_spi_probe,
    .remove     = bcm63xx_spi_remove,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
+   .prevent_deferred_probe = true,
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0) */
 };
 #endif // BCMPH_USE_SPI_DRIVER
 #endif // !BCMPH_NOHW

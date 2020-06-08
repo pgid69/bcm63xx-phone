@@ -9,14 +9,16 @@
 /* Documentation about API of Asterisk 1.11 is available
    http://doxygen.asterisk.org/trunk/ */
 
-#if ((!defined AST_VERSION) || ((18 != AST_VERSION) && (110 != AST_VERSION) && (130 != AST_VERSION)))
-#error "Preprocessor define AST_VERSION not defined or not equal to 18, 110 or 130"
+#if ((!defined AST_VERSION) || ((18 != AST_VERSION) && (110 != AST_VERSION) && (130 != AST_VERSION) && (160 != AST_VERSION)))
+#error "Preprocessor define AST_VERSION not defined or not equal to 18, 110, 130 or 160"
 #endif
 
 /* To be included first */
 #include <asterisk.h>
 
+#if (AST_VERSION < 160)
 ASTERISK_FILE_VERSION(__FILE__, "$Revision: 1 $")
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -586,7 +588,11 @@ static inline void bcmph_ast_channel_zone_set(struct ast_channel *chan, struct a
 /* #undef BCMPH_DEBUG */
 
 
+#if (AST_VERSION < 160)
 #define AST_MODULE bcmph_chan_type
+#else
+#define AST_MODULE "Bcm63xxPhone"
+#endif
 
 #include <bcm63xx_line_state.c>
 #include <bcm63xx_ring_buf.c>
